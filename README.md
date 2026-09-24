@@ -19,7 +19,7 @@ handler body rather than a build.
 The less obvious one: **this repository is the acceptance test for the whole
 split.** It builds against published artifacts only — the annotations, a
 pinned generator, a released runtime — with no path back into
-[`garm`](../garm) and no replace directive.
+[`garmd`](../garmd) and no replace directive.
 
 If it builds, the boundaries are real. If it needs a shortcut, they are not,
 and the shortcut is the bug.
