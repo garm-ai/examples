@@ -1,0 +1,12 @@
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+    opt: paths=source_relative
+    # The default, stated because it is the thing that keeps the vendored
+    # annotations from being generated a second time. Go for them already
+    # exists in github.com/garm-ai/garm/contracts, and a local copy would
+    # register the same proto file twice and panic at init.
+    include_imports: false

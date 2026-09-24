@@ -1,0 +1,31 @@
+# Toolchain and tasks for examples. Task names match every other garm-ai
+# repository.
+[tools]
+go = "1.26"
+buf = "1"
+
+[tasks.gen]
+description = "Regenerate Go from the protos"
+dir = "calculator"
+run = "buf generate"
+
+[tasks.catalogue]
+description = "Build the calculator catalogue"
+dir = "calculator"
+run = "garm catalogue build -o calculator.binpb --source garm-ai/examples/calculator"
+
+[tasks.build]
+run = "go build ./..."
+
+[tasks.test]
+description = "Run the tests, including the end-to-end one over an embedded NATS"
+run = "go test ./... -race -count=1"
+
+[tasks.lint]
+run = "go vet ./..."
+
+[tasks.fmt]
+run = "go fmt ./..."
+
+[tasks.ci]
+depends = ["lint", "build", "test"]

@@ -1,0 +1,16 @@
+version: v2
+modules:
+  # Your protos. The only module anything is generated from.
+  - path: proto
+  # The garm annotations, vendored by `garm init`. A module of its own so
+  # they can be imported by their real path — "garm/tool/v1/tool.proto" —
+  # without being generated: Go for them already exists in
+  # github.com/garm-ai/garm/contracts, and a second local copy would register
+  # the same proto file twice and panic at init.
+  - path: third_party/proto
+    lint:
+      use: [BASIC]
+lint:
+  use: [STANDARD]
+breaking:
+  use: [FILE]

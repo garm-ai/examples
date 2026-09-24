@@ -1,0 +1,97 @@
+// A calculator: the smallest tool that is still worth governing.
+//
+// Chosen as the first tool because it has no side effects and nothing secret,
+// so it exercises the path without anything to get wrong. Typed methods
+// rather than a single Eval(string) on purpose — an expression in and a
+// number out has no schema, and the schema is what garm is about.
+syntax = "proto3";
+
+package calc.v1;
+
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/calculator/gen/calc/v1;calcv1";
+
+message AddRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  // The first addend.
+  optional double a = 1;
+  // The second addend.
+  optional double b = 2;
+}
+
+message AddResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  // The sum of a and b.
+  optional double sum = 1;
+}
+
+message DivideRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional double numerator = 1;
+  // Division by zero is refused rather than returned as an infinity: a tool
+  // that answers +Inf has told a model something it will happily carry into
+  // the next call.
+  optional double denominator = 2;
+}
+
+message DivideResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional double quotient = 1;
+}
+
+message SummarizeRequest {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  // The values to describe. An empty list is an error, not an empty summary.
+  repeated double values = 1;
+}
+
+message SummarizeResponse {
+  option (garm.tool.v1.default_field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } };
+  optional double mean = 1;
+  optional double median = 2;
+  optional double min = 3;
+  optional double max = 4;
+  optional int64 count = 5;
+}
+
+service Calculator {
+  rpc Add(AddRequest) returns (AddResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "add"
+      title: "Add"
+      description: "Add two numbers and return the sum."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_PUBLIC
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL }
+    };
+  }
+
+  rpc Divide(DivideRequest) returns (DivideResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "divide"
+      title: "Divide"
+      description: "Divide the numerator by the denominator."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_PUBLIC
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL }
+      guidance: {
+        on_error: "A zero denominator is refused. Check the divisor before retrying; retrying unchanged will fail again."
+      }
+    };
+  }
+
+  rpc Summarize(SummarizeRequest) returns (SummarizeResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "summarize"
+      title: "Summarize"
+      description: "Describe a list of numbers: mean, median, minimum, maximum and count."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_PUBLIC
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL }
+      guidance: {
+        when_not_to_use: "Not for a single value, where the summary says nothing the value does not."
+      }
+    };
+  }
+}

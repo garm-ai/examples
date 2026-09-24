@@ -1,0 +1,18 @@
+bin/
+*.out
+*.test
+coverage.*
+.DS_Store
+*.swp
+.idea/
+.vscode/
+mise.local.toml
+
+# Generated Go for the VENDORED annotations, which is never imported: its
+# go_package points at github.com/garm-ai/garm/contracts, where the real one
+# already lives. buf generates it because every module in a v2 workspace is an
+# input, so it is discarded rather than prevented.
+calculator/gen/garm/
+
+# Catalogue artifacts are built, not committed.
+*.binpb
