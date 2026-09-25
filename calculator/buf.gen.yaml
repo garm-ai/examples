@@ -6,21 +6,16 @@ plugins:
     out: gen
     opt: paths=source_relative
     include_imports: false
-  # The generated tool binding offers an AsConnect adapter, so the same
-  # handlers can also be served over HTTP. That needs connect's own output.
-  - remote: buf.build/connectrpc/go
-    out: gen
-    opt: paths=source_relative
-    include_imports: false
   # The tool-side binding: the Handler interface an author implements and the
   # Serve that registers it. emit=toolsdk is the consumer half; emit=server is
   # garm's own wiring and belongs nowhere near a tool service.
+  #
+  # No connect plugin, and the binding is colocated rather than in a sibling
+  # package. Both used to be required because the binding emitted an AsConnect
+  # adapter, which referenced the connect handler in this package's connect
+  # sibling, which imported this package back for message types. The adapter is
+  # opt-in now (connect_adapter=true), and this calculator is reached over NATS
+  # by a daemon that never speaks connect to it.
   - local: protoc-gen-garm-go
     out: gen
-    # package_suffix puts the binding in a sibling package. Without it the
-    # binding sits in the base package, references the connect Handler from
-    # the base package's connect sibling, and that sibling imports the base
-    # package back for message types — a two-package cycle, unavoidable for
-    # any colocated package that both generates connect code and declares a
-    # tool.
-    opt: paths=source_relative,emit=toolsdk,contract_version=v0.1.0,package_suffix=micro
+    opt: paths=source_relative,emit=toolsdk,contract_version=v0.1.0

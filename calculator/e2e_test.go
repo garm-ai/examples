@@ -14,7 +14,6 @@ import (
 
 	"github.com/garm-ai/examples/calculator"
 	calcv1 "github.com/garm-ai/examples/calculator/gen/calc/v1"
-	calcv1micro "github.com/garm-ai/examples/calculator/gen/calc/v1/calcv1micro"
 	"github.com/garm-ai/tool-go/garmtool"
 )
 
@@ -57,7 +56,7 @@ func serveB(t testing.TB, nc *nats.Conn) {
 	// The GENERATED binding, not a hand-written one. It knows the routes, the
 	// request types, the contract version and the descriptor hash — all
 	// derived from the .proto, so none of them can drift from it.
-	if err := calcv1micro.ServeCalculator(svc, calculator.Handlers{}); err != nil {
+	if err := calcv1.ServeCalculator(svc, calculator.Handlers{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -212,12 +211,12 @@ func TestIdentityIsAdvertised(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := info.Metadata["garm.identity"]; got != calcv1micro.DescriptorHash {
+	if got := info.Metadata["garm.identity"]; got != calcv1.DescriptorHash {
 		t.Errorf("advertised identity %q, want the generated descriptor hash %q",
-			got, calcv1micro.DescriptorHash)
+			got, calcv1.DescriptorHash)
 	}
-	if got := info.Metadata["garm.contract_version"]; got != calcv1micro.ContractVersion {
-		t.Errorf("advertised contract version %q, want %q", got, calcv1micro.ContractVersion)
+	if got := info.Metadata["garm.contract_version"]; got != calcv1.ContractVersion {
+		t.Errorf("advertised contract version %q, want %q", got, calcv1.ContractVersion)
 	}
 	t.Logf("advertised: %s %s identity=%s contract=%s",
 		info.Name, info.Version,

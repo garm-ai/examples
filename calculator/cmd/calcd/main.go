@@ -26,7 +26,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/garm-ai/examples/calculator"
-	calcv1micro "github.com/garm-ai/examples/calculator/gen/calc/v1/calcv1micro"
+	calcv1 "github.com/garm-ai/examples/calculator/gen/calc/v1"
 	"github.com/garm-ai/tool-go/garmtool"
 )
 
@@ -68,7 +68,7 @@ func run() error {
 	// version and the descriptor hash all come from the contract rather than
 	// from anything written here. A handler missing from Handlers is a
 	// compile error, not a tool that quietly fails to appear.
-	if err := calcv1micro.ServeCalculator(svc, calculator.Handlers{}); err != nil {
+	if err := calcv1.ServeCalculator(svc, calculator.Handlers{}); err != nil {
 		return fmt.Errorf("registering the calculator tools: %w", err)
 	}
 

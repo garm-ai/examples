@@ -9,7 +9,7 @@ description = "Install the tool generator at the pinned version"
 # Pinned, not @latest: the generated binding carries a descriptor hash, and a
 # generator that moved under you changes committed output for no reason
 # anyone asked for.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.2.0"
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.9.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
