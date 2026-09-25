@@ -21,7 +21,26 @@ annotations, projection, redaction all act on typed fields.
 $ mise run gen          # messages from the proto
 $ mise run catalogue    # the artifact a daemon loads
 $ mise run test         # including end to end over an embedded NATS
+$ mise run serve        # run calcd against a local NATS
 ```
+
+## Running it
+
+```console
+$ nats-server &
+$ go run ./calculator/cmd/calcd
+serving service=calculator version=0.0.0-dev nats=nats://127.0.0.1:4222
+```
+
+`calcd` is what a tool service's `main` looks like: connect, register, run,
+drain. Only the handlers are about calculating; the rest is the same in every
+tool service, which is what `garm new toolservice` will eventually write.
+
+It reconnects forever rather than exiting when NATS blinks — a service that
+dies on a transient outage turns it into a deployment event, and the daemon
+already reports the tool as unreachable meanwhile. SIGTERM drains rather than
+closes: a call cut off mid-flight is a call whose effect the caller cannot
+determine.
 
 ## Why this repository is the acceptance test
 
@@ -40,6 +59,7 @@ calculator/
 ├── proto/                    your protos — the only thing generated from
 ├── third_party/proto/        the garm annotations, vendored by `garm init`
 ├── gen/                      generated messages
+├── cmd/calcd/                the binary: connect, register, run, drain
 ├── handlers.go               the work, and nothing else
 ├── bind.go                   registration — hand-written, and temporary
 └── calculator.binpb          the catalogue (built, not committed)

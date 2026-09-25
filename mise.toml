@@ -14,6 +14,10 @@ description = "Build the calculator catalogue"
 dir = "calculator"
 run = "garm catalogue build -o calculator.binpb --source garm-ai/examples/calculator"
 
+[tasks.serve]
+description = "Run calcd against a local NATS"
+run = "go run ./calculator/cmd/calcd"
+
 [tasks.build]
 run = "go build ./..."
 
