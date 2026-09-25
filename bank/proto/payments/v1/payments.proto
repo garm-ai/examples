@@ -1,0 +1,189 @@
+// Payments: the domain that refuses to mount, and the reason slicing matters.
+//
+// initiate_payment is annotated the way a bank actually needs it: destructive,
+// irreversible, external, gated on a human grant, and written to an audit
+// stream that must succeed before the money moves. Every one of those is true
+// of the tool. None of them is implemented by a garmd with no GrantVerifier
+// and no audit Sink — so that garmd REFUSES TO START rather than serve an
+// irreversible payment ungated.
+//
+// Do not weaken these annotations to make the build go green. A payment tool
+// that mounts with less supervision than its schema claims is worse than one
+// that will not mount, because the declaration reads as protection to everyone
+// who reviews it. The refusal is the feature.
+//
+// It is also the demonstration of why a bank cannot have ONE catalogue. Build
+// this tree into a single artifact and nothing in the bank serves, because one
+// domain declared supervision this deployment cannot apply. Build it per
+// domain and accounts, cards and screening come up while payments stays down
+// until its dependencies exist. See README.md.
+syntax = "proto3";
+
+package payments.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/payments/v1;paymentsv1";
+
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED      = 0;
+  PAYMENT_STATUS_SUBMITTED        = 1;
+  PAYMENT_STATUS_PENDING_APPROVAL = 2;
+  PAYMENT_STATUS_REJECTED         = 3;
+  PAYMENT_STATUS_SETTLED          = 4;
+}
+
+message InitiatePaymentRequest {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  // A payment is irreversible once it reaches the scheme, which changes what
+  // validation is FOR on this message. Elsewhere a constraint saves a pointless
+  // round trip; here it is the last cheap moment to stop something that cannot
+  // be undone.
+  string source_account_id = 1 [(buf.validate.field).required = true,
+                                (buf.validate.field).string.pattern = "^acct_[a-z0-9]{6,32}$"];
+
+  // Structural IBAN shape only: two letters, two check digits, up to thirty
+  // alphanumerics. Deliberately NOT a mod-97 checksum — a wrong-but-well-formed
+  // IBAN belongs to somebody, and refusing it here would be this schema
+  // claiming to know which accounts exist. The scheme decides that. This stops
+  // only input that cannot be an IBAN at all.
+  string beneficiary_iban = 2 [(buf.validate.field).required = true,
+                               (buf.validate.field).string.pattern = "^[A-Z]{2}[0-9]{2}[A-Z0-9]{1,30}$"];
+
+  // Strictly positive and capped. Zero is not a payment, negative is a refund
+  // wearing a payment's schema, and both are almost certainly a caller bug
+  // worth refusing before anything irreversible happens. A limit expressed here
+  // is enforced identically at every front door; one expressed in a handler is
+  // enforced only by the handlers that remember.
+  optional int64 amount_minor_units = 3 [
+    (garm.tool.v1.field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } },
+    (buf.validate.field).required = true,
+    (buf.validate.field).int64 = { gt: 0, lte: 1000000000 }
+  ];
+
+  string currency_code = 4 [(buf.validate.field).required = true,
+                            (buf.validate.field).string.pattern = "^[A-Z]{3}$"];
+
+  optional string reference = 5 [(buf.validate.field).string.max_len = 140];
+
+  // The answer to "external and not idempotent": the caller names the attempt,
+  // and a repeat of the same key returns the original payment instead of making
+  // a second one.
+  //
+  // It is required rather than optional because an agent that retries is the
+  // expected case, not the exceptional one — a timeout it never saw the answer
+  // to looks exactly like a call it should make again. Leaving this to the
+  // caller's discretion means it is absent precisely when it matters.
+  string idempotency_key = 6 [(buf.validate.field).required = true,
+                              (buf.validate.field).string.pattern = "^[A-Za-z0-9_-]{16,64}$"];
+
+  // The rule no single field can express, and the reason CEL earns its weight.
+  //
+  // This field is in MINOR units, and ISO 4217 gives JPY zero decimal places —
+  // so for JPY the minor unit IS the major unit, and a value that is not a
+  // whole multiple of 100 means the caller applied a two-decimal assumption
+  // that does not hold. Sending 1050 "minor units" of JPY is a request to move
+  // ten and a half yen, which does not exist.
+  //
+  // Both fields are individually valid. Only their relationship is wrong, which
+  // is precisely the class of mistake a message-level rule exists to catch.
+  option (buf.validate.message).cel = {
+    id: "initiate_payment.jpy_has_no_minor_units"
+    message: "JPY has no minor unit: amount_minor_units must be a whole multiple of 100"
+    expression: "this.currency_code != 'JPY' || this.amount_minor_units % 100 == 0"
+  };
+}
+
+message InitiatePaymentResponse {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  };
+
+  optional string payment_id = 1;
+  optional PaymentStatus status = 2;
+}
+
+message GetPaymentStatusRequest {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  string payment_id = 1 [(buf.validate.field).required = true,
+                         (buf.validate.field).string.pattern = "^pay_[a-z0-9]{6,32}$"];
+}
+
+message GetPaymentStatusResponse {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  };
+
+  optional string payment_id = 1;
+  optional PaymentStatus status = 2;
+  optional int64 amount_minor_units = 3 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_INTERNAL
+    compartments: ["financial"]
+    on_deny: { omit: {} }
+  }];
+}
+
+service PaymentsService {
+  rpc InitiatePayment(InitiatePaymentRequest) returns (InitiatePaymentResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "initiate_payment"
+      title: "Initiate a payment"
+      description: "Move funds from a customer account to an external "
+                   "beneficiary. Irreversible once submitted to the scheme."
+      verb: VERB_DESTRUCTIVE
+      min_clearance: CLEARANCE_RESTRICTED
+      compartments: ["financial"]
+      sets: ["payments"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_NONE external: true }
+      approval: {
+        mode: MODE_GRANT
+        approver_min_clearance: CLEARANCE_RESTRICTED
+        max_grant_age_seconds: 900
+      }
+      audit: {
+        level: LEVEL_AUDIT
+        retain_days: 2555
+        fail_closed: true
+      }
+      guidance: {
+        when_not_to_use: "Never to retry a payment whose status is unknown. It "
+                         "is not idempotent, and a duplicate leaves the customer "
+                         "out of pocket. Check payment status first."
+        on_error: "A grant-required response is not a failure. Do not retry; "
+                  "report that the payment awaits human approval."
+      }
+    };
+  }
+
+  // The safe half of the same domain, and the reason the blast radius bites:
+  // this tool is perfectly mountable and goes down anyway, because it shares a
+  // catalogue with the one above.
+  rpc GetPaymentStatus(GetPaymentStatusRequest) returns (GetPaymentStatusResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "get_payment_status"
+      title: "Get payment status"
+      description: "Where a payment has reached. Safe to call repeatedly."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: ["financial"]
+      sets: ["support", "payments"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "Before considering any retry, and whenever a customer asks "
+                     "where their money is."
+      }
+    };
+  }
+}

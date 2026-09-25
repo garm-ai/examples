@@ -9,13 +9,40 @@ description = "Install the tool generator at the pinned version"
 # Pinned, not @latest: the generated binding carries a descriptor hash, and a
 # generator that moved under you changes committed output for no reason
 # anyone asked for.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.9.0"
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.10.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
+depends = ["plugin"]
+run = ["mise run gen-calculator", "mise run gen-bank"]
+
+[tasks.gen-calculator]
 dir = "calculator"
 depends = ["plugin"]
 run = "buf generate"
+
+[tasks.gen-bank]
+dir = "bank"
+depends = ["plugin"]
+run = "buf generate"
+
+[tasks.cli]
+description = "Install the garm CLI at the pinned version"
+# Pinned for the same reason the plugin is: the digest identifies the
+# catalogue, so it must not move because someone upgraded a CLI on a laptop.
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.10.0"
+
+[tasks.lint-bank]
+description = "Lint the bank tool declarations"
+dir = "bank"
+depends = ["cli"]
+run = "garm lint --proto proto"
+
+[tasks.catalogue-bank]
+description = "Build the bank catalogue"
+dir = "bank"
+depends = ["cli"]
+run = "garm catalogue build --proto proto -o bank.binpb --source garm-ai/examples/bank"
 
 [tasks."gen-check"]
 description = "Fail if the committed generated code is stale"
@@ -28,9 +55,9 @@ description = "Fail if the committed generated code is stale"
 # not fail it — a check that cries wolf locally is one people stop running.
 run = """
 mise run gen
-if ! git diff --quiet -- calculator/gen; then
+if ! git diff --quiet -- calculator/gen bank/gen; then
   echo "generated code is stale — run 'mise run gen' and commit:" >&2
-  git diff --stat -- calculator/gen >&2
+  git diff --stat -- calculator/gen bank/gen >&2
   exit 1
 fi
 """
@@ -38,6 +65,7 @@ fi
 [tasks.catalogue]
 description = "Build the calculator catalogue"
 dir = "calculator"
+depends = ["cli"]
 run = "garm catalogue build -o calculator.binpb --source garm-ai/examples/calculator"
 
 [tasks.serve]
@@ -61,4 +89,4 @@ run = "go vet ./..."
 run = "go fmt ./..."
 
 [tasks.ci]
-depends = ["lint", "build", "test", "gen-check"]
+depends = ["lint", "lint-bank", "build", "test", "gen-check"]

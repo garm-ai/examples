@@ -1,0 +1,14 @@
+version: v2
+inputs:
+  - directory: proto
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: gen
+    opt: paths=source_relative
+    include_imports: false
+  # The tool-side binding. No connect plugin and no package_suffix: the
+  # AsConnect adapter is opt-in since garm v0.9.0, and these services are
+  # reached over NATS by a daemon that never speaks connect to them.
+  - local: protoc-gen-garm-go
+    out: gen
+    opt: paths=source_relative,emit=toolsdk,contract_version=v0.1.0

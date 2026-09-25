@@ -1,0 +1,19 @@
+# Ownership is by domain directory, which is why the tree is shaped this way.
+#
+# These paths are the review boundary for a change to a tool's SHAPE. They are
+# not sufficient for a change to its POLICY — see README.md: a clearance or
+# compartment edit looks like an ordinary proto diff, and a domain owner is not
+# a security reviewer. That gap wants a policy diff in CI, not more owners.
+
+/proto/accounts/    @bank/retail-accounts
+/proto/cards/       @bank/cards
+/proto/payments/    @bank/payments
+/proto/screening/   @bank/financial-crime
+
+# The shared taxonomy. Every domain depends on it and no domain owns it, so it
+# gets an explicit owner rather than defaulting to whoever reviews fastest.
+/proto/bank/        @bank/security-architecture
+
+# The vendored annotations are written verbatim by `garm init`. A diff here is
+# either an upgrade or a mistake, and both want the same eyes.
+/third_party/       @bank/security-architecture

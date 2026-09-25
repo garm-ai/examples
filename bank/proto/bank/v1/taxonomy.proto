@@ -1,0 +1,58 @@
+// The bank's taxonomy: which compartments and tool sets exist at all.
+//
+// garm ships no taxonomy of its own, deliberately — an enterprise defines its
+// own and ships it in the artifact. This is that definition, and it is the one
+// file in this tree that everybody edits and nobody owns by default.
+//
+// A compartment naming anything not declared here is refused at mount, which
+// makes this the bank's allowlist rather than documentation of one. That is
+// the point and also the operational hazard: at three hundred engineers every
+// new compartment is a change to a shared file, so it needs a named owner and
+// a stated review, or the refusal stops meaning anything and becomes a rubber
+// stamp on whatever was added last.
+syntax = "proto3";
+
+package bank.v1;
+
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/bank/v1;bankv1";
+
+// Compartments are need-to-know, not seniority. A principal cleared to
+// RESTRICTED still sees nothing in `kyc` unless it holds that compartment:
+// clearance says how sensitive, a compartment says whose business it is.
+option (garm.tool.v1.compartments) = {
+  declared: [
+    { name: "pii-contact"
+      description: "Contact details a customer gave us: email, phone, postal address." },
+    { name: "pii-identity"
+      description: "Identity attributes: date of birth, national identifiers, "
+                   "documents. Separate from pii-contact because support needs "
+                   "to reach a customer far more often than it needs to prove "
+                   "who they are." },
+    { name: "financial"
+      description: "Balances, transactions, payment instructions." },
+    { name: "kyc"
+      description: "Know-your-customer and sanctions screening. Access is itself "
+                   "reportable in several jurisdictions, and tipping off a "
+                   "screened party is a criminal offence in some of them." },
+    { name: "card-data"
+      description: "Card numbers and related data in PCI scope. Never rendered "
+                   "in full: the redaction is the control, not a courtesy." }
+  ]
+};
+
+// Tool sets scope a session. A token naming a set sees only tools in it, on
+// top of every other check — sets narrow and never widen.
+option (garm.tool.v1.tool_sets) = {
+  declared: [
+    { name: "support"
+      description: "What a first-line support agent may reach while a customer "
+                   "is on the phone." },
+    { name: "payments"
+      description: "Moving money. Separate from support so a support session "
+                   "cannot reach it even when the human behind it could." },
+    { name: "compliance"
+      description: "Screening and investigation." }
+  ]
+};

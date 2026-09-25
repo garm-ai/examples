@@ -1,0 +1,180 @@
+// Cards: destructive does not mean ungovernable.
+//
+// freeze_card is VERB_DESTRUCTIVE and mounts on an ordinary deployment, which
+// is the contrast worth having next to payments. The verb says what KIND of
+// action it is; reversibility says what it costs to be wrong. Freezing a card
+// is disruptive and instantly undoable, so it needs a caller who holds the
+// destructive verb and nothing more elaborate than that.
+//
+// Reaching for an approval gate here would be the mistake the annotations exist
+// to prevent in the other direction: supervision nobody honours is noise, and a
+// team that has learned to ignore a grant prompt on a reversible action will
+// ignore it on an irreversible one.
+syntax = "proto3";
+
+package cards.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/cards/v1;cardsv1";
+
+enum CardState {
+  CARD_STATE_UNSPECIFIED = 0;
+  CARD_STATE_ACTIVE      = 1;
+  CARD_STATE_FROZEN      = 2;
+  CARD_STATE_CANCELLED   = 3;
+}
+
+message ListCardsRequest {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  string customer_id = 1 [(buf.validate.field).required = true,
+                          (buf.validate.field).string.pattern = "^cust_[a-z0-9]{6,32}$"];
+}
+
+message Card {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  };
+
+  optional string card_id = 1;
+  optional CardState state = 2;
+
+  // In PCI scope, and never rendered in full to anyone through this tool. The
+  // redaction is the control rather than a courtesy: even a caller holding
+  // card-data gets BIN and last four, because no question this tool answers
+  // needs the middle digits.
+  optional string pan = 3 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    compartments: ["card-data"]
+    audit_on_read: true
+    on_deny: { card_bin_last4: {} }
+  }];
+
+  optional string expiry = 4 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["card-data"]
+    on_deny: { omit: {} }
+  }];
+}
+
+message ListCardsResponse {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  };
+
+  repeated Card cards = 1;
+}
+
+message FreezeCardRequest {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  string card_id = 1 [(buf.validate.field).required = true,
+                      (buf.validate.field).string.pattern = "^card_[a-z0-9]{6,32}$"];
+
+  // Required, and it lands in the ledger. A freeze with no stated reason is a
+  // row nobody can act on six months later, and "the agent decided to" is not
+  // a reason.
+  string reason = 2 [(buf.validate.field).required = true,
+                     (buf.validate.field).string = { min_len: 8, max_len: 280 }];
+}
+
+message FreezeCardResponse {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  };
+
+  optional string card_id = 1;
+  optional CardState state = 2;
+}
+
+service CardsService {
+  rpc ListCards(ListCardsRequest) returns (ListCardsResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "list_cards"
+      title: "List a customer's cards"
+      description: "Cards held by one customer and their current state. Card "
+                   "numbers are returned as BIN and last four."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: ["card-data"]
+      sets: ["support"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "The customer asks about a card, or you need a card_id "
+                     "before freezing one."
+        when_not_to_use: "Never to read a card number out to anyone. This tool "
+                         "cannot return one, and asking twice will not change "
+                         "that."
+      }
+    };
+  }
+
+  rpc UnfreezeCard(FreezeCardRequest) returns (FreezeCardResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "unfreeze_card"
+      title: "Unfreeze a card"
+      description: "Restore authorisations on a frozen card."
+      verb: VERB_WRITE
+      min_clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["card-data"]
+      sets: ["support"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "The customer found the card, or the freeze was a mistake."
+        when_not_to_use: "Never while a fraud investigation is open on the card. "
+                         "Unfreezing is not a judgement you are positioned to "
+                         "make from a support session."
+      }
+    };
+  }
+
+  rpc FreezeCard(FreezeCardRequest) returns (FreezeCardResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "freeze_card"
+      title: "Freeze a card"
+      description: "Immediately block further authorisations on a card. "
+                   "Reversible by unfreezing."
+      // WRITE, not DESTRUCTIVE, and the linter is what settled it. The verb
+      // grades the consequence of being wrong, not whether state changes:
+      // DESTRUCTIVE compels a human grant and a fail-closed audit stream (L14,
+      // L21), which is right for a payment and wrong for something undone in
+      // seconds by the next call. A team taught to click through a grant on a
+      // reversible action will click through one on an irreversible one.
+      verb: VERB_WRITE
+      min_clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["card-data"]
+      sets: ["support"]
+      // Destructive and instantly undoable. Compensable rather than full,
+      // because unfreezing restores the card but not the authorisations that
+      // were declined while it was frozen.
+      effects: {
+        idempotent: true
+        reversibility: REVERSIBILITY_COMPENSABLE
+        external: false
+        compensating_tool: "unfreeze_card"
+      }
+      guidance: {
+        when_to_use: "The customer reports the card lost, stolen, or used "
+                     "without their knowledge. Freeze first and investigate "
+                     "after — the cost of being wrong is one phone call."
+        when_not_to_use: "Not for a disputed transaction on a card the customer "
+                         "still holds. That is a dispute, not a compromise, and "
+                         "freezing leaves them unable to pay for anything."
+        on_error: "Already frozen is success, not failure. Do not retry and do "
+                  "not tell the customer the freeze failed."
+      }
+    };
+  }
+}

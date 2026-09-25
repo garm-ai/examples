@@ -1,0 +1,30 @@
+version: v2
+modules:
+  # One module, with a directory per domain inside it.
+  #
+  # Per-domain buf MODULES were the first attempt and buf is right to refuse
+  # them: a module root must contain the full package path, so `accounts.v1`
+  # under a module rooted at proto/accounts would have to live in
+  # proto/accounts/accounts/v1. A doubled directory for no gain.
+  #
+  # Nothing is actually lost. CODEOWNERS routes on paths, `buf breaking`
+  # reports per file, and a catalogue is sliced by directory
+  # (`--proto proto/accounts`) rather than by module. The domain boundary is
+  # the directory; buf does not need to agree for it to be real.
+  - path: proto
+  # The garm annotations, vendored. A module of its own so they import by their
+  # real path without being generated — Go for them already exists in
+  # github.com/garm-ai/garm/contracts, and a second local copy would register
+  # the same proto file twice and panic at init.
+  - path: third_party/proto
+    lint:
+      use: [BASIC]
+deps:
+  # Field constraints and CEL. garm evaluates these in the chain, before the
+  # resolver, so a request that can never succeed costs no hop and no side
+  # effect from a handler that was about to write.
+  - buf.build/bufbuild/protovalidate
+lint:
+  use: [STANDARD]
+breaking:
+  use: [FILE]

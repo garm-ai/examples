@@ -1,0 +1,116 @@
+// Screening: where being ALLOWED to call something is itself the sensitive part.
+//
+// Sanctions screening is the clearest case in this tree for compartments being
+// separate from clearance. A senior engineer cleared to RESTRICTED still has no
+// business here; a compliance analyst two grades below them does. Seniority is
+// not need-to-know, and conflating the two is how a bank ends up with an
+// investigation visible to everyone who happens to be important.
+//
+// The guidance on screen_party is not ergonomic advice. Tipping off a screened
+// party is a criminal offence in several jurisdictions, and an agent relaying a
+// match to the customer on the phone is exactly how that happens.
+syntax = "proto3";
+
+package screening.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/screening/v1;screeningv1";
+
+enum MatchStrength {
+  MATCH_STRENGTH_UNSPECIFIED = 0;
+  MATCH_STRENGTH_NONE        = 1;
+  MATCH_STRENGTH_POSSIBLE    = 2;
+  MATCH_STRENGTH_STRONG      = 3;
+}
+
+message ScreenPartyRequest {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  string full_name = 1 [(buf.validate.field).required = true,
+                        (buf.validate.field).string = { min_len: 2, max_len: 200 }];
+
+  // ISO 3166-1 alpha-2, upper case.
+  optional string country_code = 2 [(buf.validate.field).string.pattern = "^[A-Z]{2}$"];
+
+  // RFC 3339 date. A birth date narrows a screening match more than any other
+  // single field, which is why it is worth asking for and worth guarding.
+  optional string date_of_birth = 3 [(buf.validate.field).string.pattern =
+    "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"];
+}
+
+message Match {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    on_deny: { omit: {} }
+  };
+
+  optional string list_name = 1;
+  optional string matched_name = 2;
+  optional MatchStrength strength = 3;
+
+  // The analyst's own note. Reading one is recorded even when permitted —
+  // access to an open investigation is reportable in its own right.
+  optional string notes = 4 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    compartments: ["kyc"]
+    audit_on_read: true
+    on_deny: { omit: {} }
+  }];
+}
+
+message ScreenPartyResponse {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    on_deny: { omit: {} }
+  };
+
+  // Deliberately readable one grade below the matches themselves. "This needs a
+  // human" is a routing decision a supervisor can act on without seeing whose
+  // name came back or why.
+  optional bool requires_review = 1 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["kyc"]
+    on_deny: { omit: {} }
+  }];
+
+  repeated Match matches = 2 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    compartments: ["kyc"]
+    on_deny: { omit: {} }
+  }];
+}
+
+service ScreeningService {
+  rpc ScreenParty(ScreenPartyRequest) returns (ScreenPartyResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "screen_party"
+      title: "Screen a party against sanctions lists"
+      description: "Check a name against the sanctions and PEP lists this bank "
+                   "subscribes to. Returns whether review is required and, to "
+                   "callers cleared for it, the matches themselves."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["kyc"]
+      sets: ["compliance"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: true }
+      guidance: {
+        when_to_use: "Onboarding a party, or before a payment to a beneficiary "
+                     "not seen before."
+        when_not_to_use: "NEVER relay a match, or the fact that screening was "
+                         "run, to the customer or to anyone outside compliance. "
+                         "Tipping off is a criminal offence in several "
+                         "jurisdictions. If a match requires review, hand off to "
+                         "compliance and say nothing further to the customer."
+        on_error: "An empty match list is not a clearance decision. It means "
+                  "this call found nothing, which is not the same as the party "
+                  "being clear."
+      }
+    };
+  }
+}

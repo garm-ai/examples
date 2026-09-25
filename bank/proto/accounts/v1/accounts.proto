@@ -1,0 +1,162 @@
+// Accounts: the everyday read path, and where redaction earns its keep.
+//
+// This is the domain a support agent's session actually touches, so it is the
+// one where per-principal projection does the most work. The same GetCustomer
+// call returns a different SHAPE to a first-line agent and to a fraud analyst
+// — not the same shape with nulls in it. A field the caller may not read is
+// absent from their schema, so a model never learns it exists and never
+// retries for it.
+syntax = "proto3";
+
+package accounts.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/accounts/v1;accountsv1";
+
+message GetBalanceRequest {
+  // Requests are checked for WRITE clearance, never sanitized on the way in,
+  // so PUBLIC here says nothing about who may call the tool — min_clearance on
+  // the RPC governs that. mask rather than omit because omit on a
+  // presence-less scalar makes "redacted" and "empty" the same value (L6).
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  string account_id = 1 [(buf.validate.field).required = true,
+                         (buf.validate.field).string.pattern = "^acct_[a-z0-9]{6,32}$"];
+}
+
+message GetBalanceResponse {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  };
+
+  optional string account_id = 1;
+
+  // Minor units, like every amount in this tree. Not a float: a balance that
+  // arrives as 10.229999999999999 is a support call nobody can close.
+  optional int64 balance_minor_units = 2;
+  optional string currency_code = 3;
+
+  // The compartment, not the clearance, is what keeps this from a support
+  // agent who is nonetheless cleared to INTERNAL.
+  optional int64 available_minor_units = 4 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_INTERNAL
+    compartments: ["financial"]
+    on_deny: { omit: {} }
+  }];
+}
+
+message GetCustomerRequest {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  string customer_id = 1 [(buf.validate.field).required = true,
+                          (buf.validate.field).string.pattern = "^cust_[a-z0-9]{6,32}$"];
+}
+
+// The projection demo. Four fields, four different answers depending on who
+// asked, and none of them is "null".
+message GetCustomerResponse {
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  };
+
+  optional string customer_id = 1;
+  optional string display_name = 2;
+
+  // Masked rather than omitted, because a support agent needs to know an email
+  // is ON FILE without reading it — "I can see we have an address ending
+  // @gmail.com" closes a call that "no email" would escalate.
+  optional string email = 3 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["pii-contact"]
+    on_deny: { email_domain: {} }
+  }];
+
+  // Last four, same reasoning: enough to confirm, not enough to use.
+  optional string phone = 4 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["pii-contact"]
+    on_deny: { keep_last: { n: 4 reason: "confirm a number without disclosing it" } }
+  }];
+
+  // Identity, not contact — a different compartment on purpose. Support
+  // reaches customers constantly and proves who they are rarely.
+  //
+  // Coarsened to the year rather than omitted: a birth year answers most
+  // eligibility questions without disclosing a birthday.
+  //
+  // Truncation rather than date_grain because this field is a string, and
+  // DateGrain only accepts a real date type. Four runes of an RFC 3339 date IS
+  // the year, which is worth saying plainly instead of pretending the field has
+  // a type it does not.
+  optional string date_of_birth = 5 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    compartments: ["pii-identity"]
+    on_deny: { truncate: { n: 4 reason: "the birth year, without the birthday" } }
+  }];
+
+  // Reading this is itself an event worth a row, even when it is allowed.
+  optional string national_id = 6 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_RESTRICTED
+    compartments: ["pii-identity"]
+    audit_on_read: true
+    on_deny: { omit: {} }
+  }];
+}
+
+service AccountsService {
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "get_balance"
+      title: "Get an account balance"
+      description: "Current and available balance for one account, in minor units."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: ["financial"]
+      sets: ["support", "payments"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "The customer asks what they have, or you need to check "
+                     "funds before proposing a payment."
+        when_not_to_use: "Do not use to decide whether a payment will clear. "
+                         "Available balance is a snapshot and does not account "
+                         "for authorisations in flight."
+      }
+    };
+  }
+
+  rpc GetCustomer(GetCustomerRequest) returns (GetCustomerResponse) {
+    option (garm.tool.v1.tool) = {
+      name: "get_customer"
+      title: "Get customer details"
+      description: "Identity and contact details for one customer. Fields are "
+                   "returned according to the caller's clearance and "
+                   "compartments; absence of a field is not absence of data."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: ["pii-contact"]
+      sets: ["support", "compliance"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "You need to identify or contact a customer."
+        when_not_to_use: "Never to verify identity for a security decision. A "
+                         "masked or coarsened field is not evidence, and this "
+                         "tool cannot tell you which fields you were given in "
+                         "full."
+        on_error: "A not-found answer may mean the customer does not exist OR "
+                  "that you are not cleared to see them. Do not report to the "
+                  "customer that no record exists."
+      }
+    };
+  }
+}
