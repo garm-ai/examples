@@ -32,6 +32,38 @@ description = "Install the garm CLI at the pinned version"
 # catalogue, so it must not move because someone upgraded a CLI on a laptop.
 run = "go install github.com/garm-ai/garm/cmd/garm@v0.10.0"
 
+[tasks.daemon]
+description = "Install garmd at the pinned version, for the mount check"
+run = "go install github.com/garm-ai/garmd/cmd/garmd@v0.1.0"
+
+[tasks."check-bank"]
+description = "Assert the bank catalogue mounts where it should and refuses where it should not"
+dir = "bank"
+depends = ["catalogue-bank", "daemon"]
+# Both directions, and the failing one is the point.
+#
+# Asserting only that the catalogue mounts somewhere would pass just as well if
+# the refusal had quietly stopped working — and a refusal that stopped working
+# is a payment tool served with no grant and no audit trail, which is the one
+# outcome this whole system exists to prevent. So the bare run must FAIL, and
+# the equipped run must pass.
+run = """
+set -e
+if garmd check --catalogue bank.binpb > /dev/null 2>&1; then
+  echo "FAIL: the catalogue mounted on a deployment with no grant verifier and" >&2
+  echo "      no audit sink. initiate_payment declares both. The refusal has" >&2
+  echo "      stopped working, which means an irreversible payment would be" >&2
+  echo "      served ungated while its schema says it is supervised." >&2
+  exit 1
+fi
+echo "ok: refused on a bare deployment, as it must"
+
+# 2555 days, the retention initiate_payment declares. A sink keeping less is
+# refused too, which is the check that catches a misconfigured bucket rather
+# than a missing one.
+garmd check --catalogue bank.binpb --with-grants --audit-retention 61320h
+"""
+
 [tasks.lint-bank]
 description = "Lint the bank tool declarations"
 dir = "bank"
@@ -89,4 +121,4 @@ run = "go vet ./..."
 run = "go fmt ./..."
 
 [tasks.ci]
-depends = ["lint", "lint-bank", "build", "test", "gen-check"]
+depends = ["lint", "lint-bank", "check-bank", "build", "test", "gen-check"]

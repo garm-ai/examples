@@ -66,6 +66,31 @@ declarations. `buf generate` fails exactly that way. A domain that uses a
 compartment name *depends on* the file declaring that name, and the import
 graph should say so.
 
+## The refusal is asserted, in both directions
+
+`mise run check-bank` builds the catalogue and runs `garmd check` against it
+twice — once on a bare deployment, once on one with grants and a seven-year
+audit sink. **The bare run must fail.**
+
+Asserting only that the catalogue mounts somewhere would pass equally well if
+the refusal had quietly stopped working, and a refusal that has stopped
+working is a payment tool served with no grant and no audit trail. Same
+catalogue, opposite capability flags, opposite outcomes — that is what makes
+it a test rather than a formality.
+
+Two layers catch it, which is worth knowing when you are tempted to weaken an
+annotation to get a build green:
+
+```
+# remove the supervision and drop the verb to WRITE:
+error: L16: InitiatePayment: irreversible and external requires at least MODE_NOTIFY
+```
+
+The linter refuses to *build* a catalogue serving an irreversible external
+tool with no supervision at all. The mount check then refuses to *serve* one
+whose supervision this deployment cannot apply. Getting a payment tool past
+both, ungated, takes a deliberate lie about its effects.
+
 ## What this tree proves is still missing
 
 **One catalogue is one blast radius.** Build this whole tree into a single
