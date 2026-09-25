@@ -9,7 +9,7 @@ description = "Install the tool generator at the pinned version"
 # Pinned, not @latest: the generated binding carries a descriptor hash, and a
 # generator that moved under you changes committed output for no reason
 # anyone asked for.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.10.0"
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.11.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -30,7 +30,7 @@ run = "buf generate"
 description = "Install the garm CLI at the pinned version"
 # Pinned for the same reason the plugin is: the digest identifies the
 # catalogue, so it must not move because someone upgraded a CLI on a laptop.
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.10.0"
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.11.0"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
@@ -62,6 +62,35 @@ echo "ok: refused on a bare deployment, as it must"
 # refused too, which is the check that catches a misconfigured bucket rather
 # than a missing one.
 garmd check --catalogue bank.binpb --with-grants --audit-retention 61320h
+"""
+
+[tasks."diff-bank"]
+description = "Report how this branch moves the bank's policy, against a base ref"
+dir = "bank"
+depends = ["cli"]
+# BASE defaults to main. In CI it is the pull request's base, so the report is
+# "what does merging this change", which is the only framing a reviewer can act
+# on — a diff against an arbitrary commit is noise.
+#
+# Not gated with --fail-on-widening here. A widening is frequently correct and
+# blocking every one of them teaches people to route around the check; what it
+# must never be is INVISIBLE. In a bank this is where you would add the gate,
+# with an override a named human applies.
+run = """
+set -e
+BASE="${BASE:-main}"
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+
+# The base catalogue is built from a clean worktree of the base ref rather
+# than from a stash: a stash leaves generated output and build artifacts
+# behind, and the digest would then depend on what happened to be lying around.
+git worktree add --detach --quiet "$WORK/base" "$BASE"
+garm catalogue build --proto "$WORK/base/bank/proto" -o "$WORK/base.binpb"
+git worktree remove --force "$WORK/base"
+
+garm catalogue build --proto proto -o "$WORK/head.binpb"
+garm catalogue diff "$WORK/base.binpb" "$WORK/head.binpb"
 """
 
 [tasks.lint-bank]

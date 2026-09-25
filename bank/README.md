@@ -109,13 +109,52 @@ tree so imports and declarations always resolve, and emit only the named
 packages. That flag does not exist. Until it does, a bank runs one catalogue
 and accepts the blast radius, which is not an acceptable answer.
 
-**Policy changes are invisible in review.** The annotations *are* the policy,
-so lowering a `min_clearance` is a security decision that looks like a proto
-diff. CODEOWNERS routes it to a domain owner, who is not a security reviewer,
-and at this scale nobody reads every diff. The linter catches *malformed*
-policy and cannot catch *wrong* policy. That wants a policy diff as a required
-check — computable offline from two catalogues, because the projection is a
-pure function of the catalogue and the caller's shape.
+**~~Policy changes are invisible in review.~~** Fixed — see below.
+
+## What a policy change looks like in review
+
+The annotations *are* the policy, so lowering a `min_clearance` is a security
+decision that arrives as an ordinary proto diff. CODEOWNERS routes it to a
+domain owner, who is not a security reviewer, and at this scale nobody reads
+every diff.
+
+`mise run diff-bank` builds the catalogue on both sides of a branch and
+reports what moved. CI runs it on every pull request:
+
+```
+WIDENING — more callers, or less recorded (2)
+  screening.v1.ScreenPartyResponse.requires_review
+      read CLEARANCE_CONFIDENTIAL → CLEARANCE_INTERNAL
+      every caller cleared below the old bar now reads the value in full
+  screening.v1.ScreenPartyResponse.requires_review
+      compartment "kyc" no longer required to read
+      a wider audience reads the value in full
+```
+
+That is a plausible pull request — *"support should be able to see whether a
+screening needs review"* — and a reasonable domain owner would approve the
+diff without noticing it takes a sanctions signal out of `kyc`.
+
+Three things about the output are deliberate.
+
+**It reports direction, not fields.** `git diff` already lists the fields. What
+a reviewer cannot compute in their head is whether the change means more
+callers or fewer.
+
+**Inherited defaults are resolved.** A field carrying no annotation of its own
+still moves when its message default moves, so a diff reading only explicit
+annotations would report nothing. That is also the edit most likely to be made
+carelessly, because it is made in one place and lands on every field.
+
+**Verb and redaction changes are `UNCLEAR`, not `WIDENING`.** A verb going
+READ → WRITE moves a tool between caller sets rather than up or down. Filing
+those under widening would train people to skim the widening list, which is
+worse than not having one.
+
+It reports rather than blocks. A widening is frequently correct, and failing
+every one of them teaches people to route around the check — what it must never
+be is invisible. `--fail-on-widening` is there for where you want the gate,
+with an override a named human applies.
 
 ## Running it
 

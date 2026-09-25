@@ -26,6 +26,29 @@ jobs:
       # a .proto change from shipping without the binding that matches it.
       - run: mise run gen-check
 
+  # What does merging this change about who may see what?
+  #
+  # The annotations ARE the policy, so a clearance edit arrives as an ordinary
+  # proto diff and a domain owner reviewing it is not a security reviewer. This
+  # puts the answer in the pull request, where somebody has to scroll past it.
+  #
+  # Pull requests only: the question is about a change, and there is nothing to
+  # compare a push to main against.
+  policy:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # The base ref has to be fetched — the default checkout is a shallow
+      # single commit, and a diff needs both sides.
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: jdx/mise-action@v2
+        with: { install: true, cache: true }
+      - name: how this branch moves the bank's policy
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: mise run diff-bank
+
   # This repository IS the acceptance test for the split. If it builds
   # against published artifacts with no shortcut, the boundaries are real;
   # if it needs one, they are not, and the shortcut is the bug.
