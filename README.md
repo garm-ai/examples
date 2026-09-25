@@ -42,6 +42,20 @@ already reports the tool as unreachable meanwhile. SIGTERM drains rather than
 closes: a call cut off mid-flight is a call whose effect the caller cannot
 determine.
 
+## Generated code is committed
+
+`calculator/gen/` is in the repository, not ignored. A Go module has to build
+from its own source: anyone cloning this to fork it runs `go build`, not buf
+plus three plugins and a network round trip.
+
+The cost of committing generated code is that it can drift from the `.proto`.
+`mise run gen-check` regenerates and fails if the tree moved, and CI runs it —
+so a contract change cannot ship without the binding that matches it.
+
+The one generated thing that IS ignored is `calculator/gen/garm/`, the output
+for the vendored annotations, which nothing imports because the real one lives
+in `garm/contracts`.
+
 ## Why this repository is the acceptance test
 
 It builds against **published artifacts only** — the annotations and contracts

@@ -4,10 +4,36 @@
 go = "1.26"
 buf = "1"
 
+[tasks.plugin]
+description = "Install the tool generator at the pinned version"
+# Pinned, not @latest: the generated binding carries a descriptor hash, and a
+# generator that moved under you changes committed output for no reason
+# anyone asked for.
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.2.0"
+
 [tasks.gen]
 description = "Regenerate Go from the protos"
 dir = "calculator"
+depends = ["plugin"]
 run = "buf generate"
+
+[tasks."gen-check"]
+description = "Fail if the committed generated code is stale"
+# Generated code is COMMITTED here, because a Go module has to build from its
+# own source: anyone cloning this to fork it runs `go build`, not buf plus
+# three plugins. The cost of committing is drift, and this is the check that
+# pays it.
+#
+# Scoped to the generated paths, so an unrelated edit in the working tree does
+# not fail it — a check that cries wolf locally is one people stop running.
+run = """
+mise run gen
+if ! git diff --quiet -- calculator/gen; then
+  echo "generated code is stale — run 'mise run gen' and commit:" >&2
+  git diff --stat -- calculator/gen >&2
+  exit 1
+fi
+"""
 
 [tasks.catalogue]
 description = "Build the calculator catalogue"
@@ -35,4 +61,4 @@ run = "go vet ./..."
 run = "go fmt ./..."
 
 [tasks.ci]
-depends = ["lint", "build", "test"]
+depends = ["lint", "build", "test", "gen-check"]

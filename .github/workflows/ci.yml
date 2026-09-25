@@ -22,6 +22,9 @@ jobs:
       - run: mise run lint
       - run: mise run build
       - run: mise run test
+      # Generated code is committed, so it can go stale. This is what stops
+      # a .proto change from shipping without the binding that matches it.
+      - run: mise run gen-check
 
   # This repository IS the acceptance test for the split. If it builds
   # against published artifacts with no shortcut, the boundaries are real;
