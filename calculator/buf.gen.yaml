@@ -5,8 +5,22 @@ plugins:
   - remote: buf.build/protocolbuffers/go
     out: gen
     opt: paths=source_relative
-    # The default, stated because it is the thing that keeps the vendored
-    # annotations from being generated a second time. Go for them already
-    # exists in github.com/garm-ai/garm/contracts, and a local copy would
-    # register the same proto file twice and panic at init.
     include_imports: false
+  # The generated tool binding offers an AsConnect adapter, so the same
+  # handlers can also be served over HTTP. That needs connect's own output.
+  - remote: buf.build/connectrpc/go
+    out: gen
+    opt: paths=source_relative
+    include_imports: false
+  # The tool-side binding: the Handler interface an author implements and the
+  # Serve that registers it. emit=toolsdk is the consumer half; emit=server is
+  # garm's own wiring and belongs nowhere near a tool service.
+  - local: protoc-gen-garm-go
+    out: gen
+    # package_suffix puts the binding in a sibling package. Without it the
+    # binding sits in the base package, references the connect Handler from
+    # the base package's connect sibling, and that sibling imports the base
+    # package back for message types — a two-package cycle, unavoidable for
+    # any colocated package that both generates connect code and declares a
+    # tool.
+    opt: paths=source_relative,emit=toolsdk,contract_version=v0.1.0,package_suffix=micro

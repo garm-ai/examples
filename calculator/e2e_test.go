@@ -2,6 +2,7 @@ package calculator_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/garm-ai/examples/calculator"
 	calcv1 "github.com/garm-ai/examples/calculator/gen/calc/v1"
+	calcv1micro "github.com/garm-ai/examples/calculator/gen/calc/v1/calcv1micro"
 	"github.com/garm-ai/tool-go/garmtool"
 )
 
@@ -52,7 +54,10 @@ func serve(t *testing.T, nc *nats.Conn) { serveB(t, nc) }
 func serveB(t testing.TB, nc *nats.Conn) {
 	t.Helper()
 	svc := garmtool.New("calculator", "v0.1.0")
-	if err := calculator.Register(svc, calculator.Handlers{}); err != nil {
+	// The GENERATED binding, not a hand-written one. It knows the routes, the
+	// request types, the contract version and the descriptor hash — all
+	// derived from the .proto, so none of them can drift from it.
+	if err := calcv1micro.ServeCalculator(svc, calculator.Handlers{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -181,4 +186,41 @@ func TestTheCatalogueMatchesTheService(t *testing.T) {
 	// Deliberately not parsing it here — that would mean depending on the
 	// daemon's loader from the consumer side. Presence is what this checks;
 	// the daemon's own tests cover the contents.
+}
+
+// TestIdentityIsAdvertised is what the generated binding buys over a
+// hand-written one.
+//
+// The daemon reconciles what is running against the catalogue it loaded, and
+// it does that from $SRV.INFO rather than from configuration. A service that
+// advertised nothing would leave "is this the contract I think it is" as a
+// promise — which is the thing published declarations otherwise reintroduce.
+func TestIdentityIsAdvertised(t *testing.T) {
+	nc := runNATS(t)
+	serve(t, nc)
+
+	msg, err := nc.Request("$SRV.INFO", nil, 3*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var info struct {
+		Name     string            `json:"name"`
+		Version  string            `json:"version"`
+		Metadata map[string]string `json:"metadata"`
+	}
+	if err := json.Unmarshal(msg.Data, &info); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := info.Metadata["garm.identity"]; got != calcv1micro.DescriptorHash {
+		t.Errorf("advertised identity %q, want the generated descriptor hash %q",
+			got, calcv1micro.DescriptorHash)
+	}
+	if got := info.Metadata["garm.contract_version"]; got != calcv1micro.ContractVersion {
+		t.Errorf("advertised contract version %q, want %q", got, calcv1micro.ContractVersion)
+	}
+	t.Logf("advertised: %s %s identity=%s contract=%s",
+		info.Name, info.Version,
+		info.Metadata["garm.identity"][:12]+"…",
+		info.Metadata["garm.contract_version"])
 }

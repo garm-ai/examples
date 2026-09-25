@@ -60,8 +60,8 @@ calculator/
 ├── third_party/proto/        the garm annotations, vendored by `garm init`
 ├── gen/                      generated messages
 ├── cmd/calcd/                the binary: connect, register, run, drain
+├── gen/calc/v1/calcv1micro/  the GENERATED binding: Handler, Serve, hash
 ├── handlers.go               the work, and nothing else
-├── bind.go                   registration — hand-written, and temporary
 └── calculator.binpb          the catalogue (built, not committed)
 ```
 
@@ -70,8 +70,16 @@ daemon did all of that before the request arrived, and doing any of it here
 would be a second, unreviewed implementation of the chain in the one place
 that must not have one.
 
-`bind.go` is what `protoc-gen-garm-go` should emit. It is written by hand so
-the runtime could be exercised before the tool-side generator was wired up,
-and it is the first thing to delete when it is.
+Registration is **generated**, not written. `ServeCalculator` comes from
+`protoc-gen-garm-go -emit=toolsdk`, and with it a typed `CalculatorHandler`
+interface — so a missing method is a compile error rather than a tool that
+quietly fails to appear — plus the contract version and descriptor hash the
+service advertises on `$SRV.INFO`.
+
+The binding lands in a `…micro` sibling package via `package_suffix`. Without
+that it sits in the base package, references the connect Handler from the base
+package's connect sibling, and that sibling imports the base package back for
+message types: a two-package cycle, unavoidable for any colocated package that
+both generates connect code and declares a tool.
 
 MIT licensed.

@@ -26,6 +26,7 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/garm-ai/examples/calculator"
+	calcv1micro "github.com/garm-ai/examples/calculator/gen/calc/v1/calcv1micro"
 	"github.com/garm-ai/tool-go/garmtool"
 )
 
@@ -63,7 +64,11 @@ func run() error {
 	defer nc.Close()
 
 	svc := garmtool.New(*name, version())
-	if err := calculator.Register(svc, calculator.Handlers{}); err != nil {
+	// Generated from the .proto: the routes, the request types, the contract
+	// version and the descriptor hash all come from the contract rather than
+	// from anything written here. A handler missing from Handlers is a
+	// compile error, not a tool that quietly fails to appear.
+	if err := calcv1micro.ServeCalculator(svc, calculator.Handlers{}); err != nil {
 		return fmt.Errorf("registering the calculator tools: %w", err)
 	}
 
