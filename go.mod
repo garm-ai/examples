@@ -3,13 +3,13 @@ module github.com/garm-ai/examples
 go 1.26.0
 
 require (
-	github.com/garm-ai/tool-go v0.2.0
+	github.com/garm-ai/tool-go v0.3.0
 	google.golang.org/protobuf v1.36.12
 )
 
 require (
 	connectrpc.com/connect v1.21.0
-	github.com/garm-ai/garm v0.1.0
+	github.com/garm-ai/garm v0.4.0
 	github.com/nats-io/nats-server/v2 v2.15.0
 	github.com/nats-io/nats.go v1.54.0
 )
