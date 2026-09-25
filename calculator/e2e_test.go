@@ -24,7 +24,9 @@ import (
 // boundaries are real. If it needed a shortcut, they are not, and the
 // shortcut is the bug.
 
-func runNATS(t *testing.T) *nats.Conn {
+func runNATS(t *testing.T) *nats.Conn { return runNATSB(t) }
+
+func runNATSB(t testing.TB) *nats.Conn {
 	t.Helper()
 	opts := &natsserver.Options{Port: -1, NoLog: true, NoSigs: true}
 	srv, err := natsserver.NewServer(opts)
@@ -45,7 +47,9 @@ func runNATS(t *testing.T) *nats.Conn {
 	return nc
 }
 
-func serve(t *testing.T, nc *nats.Conn) {
+func serve(t *testing.T, nc *nats.Conn) { serveB(t, nc) }
+
+func serveB(t testing.TB, nc *nats.Conn) {
 	t.Helper()
 	svc := garmtool.New("calculator", "v0.1.0")
 	if err := calculator.Register(svc, calculator.Handlers{}); err != nil {
@@ -94,7 +98,7 @@ func serve(t *testing.T, nc *nats.Conn) {
 	t.Fatal("the service never started answering")
 }
 
-func mustMarshal(t *testing.T, m proto.Message) []byte {
+func mustMarshal(t testing.TB, m proto.Message) []byte {
 	t.Helper()
 	b, err := proto.Marshal(m)
 	if err != nil {
@@ -120,6 +124,8 @@ func call(t *testing.T, nc *nats.Conn, route string, req, resp proto.Message) er
 type toolError struct{ code, msg string }
 
 func (e *toolError) Error() string { return e.code + ": " + e.msg }
+
+const benchTimeout = 3 * time.Second
 
 func TestToolsAnswerOverNATS(t *testing.T) {
 	nc := runNATS(t)
