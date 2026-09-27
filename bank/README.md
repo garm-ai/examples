@@ -66,6 +66,45 @@ declarations. `buf generate` fails exactly that way. A domain that uses a
 compartment name *depends on* the file declaring that name, and the import
 graph should say so.
 
+## The claim, demonstrated
+
+`mise run test` runs the whole thing: a real broker, the real tool service, a
+real catalogue artifact, the real `garmd` **binary as a separate process**, and
+a real signed token. One call to `get_customer`, three callers:
+
+```
+support:  email ***@example.com          phone ***********0412   dateOfBirth 1988…
+analyst:  email ada.okonkwo@example.com  phone +44 7700 900412   dateOfBirth 1988-03-14
+                                                                 nationalId  QQ123456C
+outsider: 404
+```
+
+Three things in there are the whole design.
+
+**The support agent's fields are redacted, not withheld.** A domain, a last
+four, a birth year. Each is a deliberate middle: enough to confirm, never
+enough to use, and never "no data" — which is the answer that escalates a call
+this one closes.
+
+**`nationalId` is absent rather than masked**, because there is no useful
+fraction of a national identifier — and it is absent from the *schema*, so a
+model never learns the field exists and never retries for it.
+
+**The outsider is `CLEARANCE_RESTRICTED` and sees less than the support agent**,
+who is two grades below them. Clearance is not need-to-know. The answer is 404
+rather than 403, because the existence of a tool is itself information.
+
+garmd is a subprocess rather than an import, because examples must not depend
+on it and CI asserts that. Honouring the boundary here is what makes this an
+acceptance test: if the published binary and the published contracts cannot do
+this together, nothing else that passes matters.
+
+The catalogue is accounts-only, and that is not a convenience. `payments`
+declares an approval gate and an audit stream and `garmd serve` has no flag to
+supply either, so the full bank catalogue cannot be served by any garmd that
+exists today. An accounts-only artifact is what a support cluster would run —
+and building one here is what catalogue slicing would do if it existed.
+
 ## The refusal is asserted, in both directions
 
 `mise run check-bank` builds the catalogue and runs `garmd check` against it

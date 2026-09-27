@@ -137,6 +137,11 @@ run = "go run ./calculator/cmd/calcd"
 run = "go build ./..."
 
 [tasks.test]
+# The bank's projection test runs the real garm and garmd binaries rather than
+# importing them, because examples must not depend on garmd — the boundary CI
+# asserts. It refuses rather than skips when they are absent, so the task that
+# runs it installs them.
+depends = ["cli", "daemon"]
 description = "Run the tests, including the end-to-end one over an embedded NATS"
 # -timeout because Go's default is ten minutes, and a test waiting on a
 # service that never answers will sit there for all of it. A CI job that
