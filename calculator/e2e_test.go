@@ -3,8 +3,10 @@ package calculator_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +16,8 @@ import (
 
 	"github.com/garm-ai/examples/calculator"
 	calcv1 "github.com/garm-ai/examples/calculator/gen/calc/v1"
+	"github.com/garm-ai/garm/contracts/callctx"
+	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	"github.com/garm-ai/tool-go/garmtool"
 )
 
@@ -94,7 +98,7 @@ func serveB(t testing.TB, nc *nats.Conn) {
 			t.Fatalf("the service stopped before it could answer: %v", err)
 		default:
 		}
-		if _, err := nc.Request(garmtool.Subject("/calc.v1.Calculator/Add"), mustMarshal(t,
+		if _, err := requestTool(nc, "/calc.v1.Calculator/Add", mustMarshal(t,
 			&calcv1.AddRequest{}), 100*time.Millisecond); err == nil {
 			return
 		}
@@ -111,11 +115,54 @@ func mustMarshal(t testing.TB, m proto.Message) []byte {
 	return b
 }
 
+// callSeq gives every InvocationContext this file builds a distinct call_id
+// and correlation_id.
+var callSeq atomic.Int64
+
+// invocationContext stands in for the header garmd sets on every hop
+// (program plan §3.5). This test calls the tool service directly over NATS
+// with no daemon in the picture, and tool-go v0.5.0 refuses any request that
+// arrives with no Garm-Invocation header — so a direct caller must build one
+// itself. It asserts a realistic identity: a tenant, a correlation id, a
+// principal subject and kind, a fresh call id. No act chain and no deadline,
+// because this test needs neither. Never a token or a clearance: the header
+// carries assertions, not credentials, and this test bypasses the chain that
+// would decide either.
+func invocationContext() *toolv1.InvocationContext {
+	n := callSeq.Add(1)
+	return &toolv1.InvocationContext{
+		Attribution: &toolv1.CallContext{
+			Tenant:        "calculator-e2e",
+			CorrelationId: fmt.Sprintf("calc-e2e-corr-%d", n),
+		},
+		Principal: &toolv1.InvocationPrincipal{
+			Subject: "user:e2e-test",
+			Kind:    toolv1.PrincipalKind_PRINCIPAL_KIND_USER,
+		},
+		CallId: fmt.Sprintf("calc-e2e-call-%d", n),
+	}
+}
+
+// requestTool sends body to route the way the daemon's transport does, with
+// one addition a real garmd would already have made: a Garm-Invocation
+// header carrying a fresh InvocationContext. Centralised here so every direct
+// call in this file gets one rather than each call site building its own.
+func requestTool(nc *nats.Conn, route string, body []byte, timeout time.Duration) (*nats.Msg, error) {
+	msg := nats.NewMsg(garmtool.Subject(route))
+	msg.Data = body
+	h, err := callctx.Encode(invocationContext())
+	if err != nil {
+		return nil, err
+	}
+	msg.Header.Set(callctx.Header, h)
+	return nc.RequestMsg(msg, timeout)
+}
+
 // call sends a request the way the daemon's transport does: marshal, request
 // on the subject derived from the route, unmarshal the reply.
 func call(t *testing.T, nc *nats.Conn, route string, req, resp proto.Message) error {
 	t.Helper()
-	msg, err := nc.Request(garmtool.Subject(route), mustMarshal(t, req), 3*time.Second)
+	msg, err := requestTool(nc, route, mustMarshal(t, req), 3*time.Second)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,9 @@ package bank_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	cardsv1 "github.com/garm-ai/examples/bank/gen/cards/v1"
 	paymentsv1 "github.com/garm-ai/examples/bank/gen/payments/v1"
 	screeningv1 "github.com/garm-ai/examples/bank/gen/screening/v1"
+	"github.com/garm-ai/garm/contracts/callctx"
+	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	"github.com/garm-ai/tool-go/garmtool"
 )
 
@@ -114,11 +118,55 @@ func waitFor(t *testing.T, nc *nats.Conn, route string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, err := nc.Request(garmtool.Subject(route), nil, 100*time.Millisecond); err == nil {
+		if _, err := requestTool(nc, route, nil, 100*time.Millisecond); err == nil {
 			return
 		}
 	}
 	t.Fatalf("%s never started answering", route)
+}
+
+// callSeq gives every InvocationContext this file builds a distinct call_id
+// and correlation_id, including the sixteen fired concurrently by
+// TestConcurrentRetriesOfOnePaymentStillMakeOnePayment.
+var callSeq atomic.Int64
+
+// invocationContext stands in for the header garmd sets on every hop
+// (program plan §3.5). These tests call the tool service directly over NATS
+// with no daemon in the picture, and tool-go v0.5.0 refuses any request that
+// arrives with no Garm-Invocation header — so a direct caller must build one
+// itself. It asserts a realistic identity: a tenant, a correlation id, a
+// principal subject and kind, a fresh call id. No act chain and no deadline,
+// because this test needs neither. Never a token or a clearance: the header
+// carries assertions, not credentials, and this test bypasses the chain that
+// would decide either.
+func invocationContext() *toolv1.InvocationContext {
+	n := callSeq.Add(1)
+	return &toolv1.InvocationContext{
+		Attribution: &toolv1.CallContext{
+			Tenant:        "bank-e2e",
+			CorrelationId: fmt.Sprintf("bank-e2e-corr-%d", n),
+		},
+		Principal: &toolv1.InvocationPrincipal{
+			Subject: "user:e2e-test",
+			Kind:    toolv1.PrincipalKind_PRINCIPAL_KIND_USER,
+		},
+		CallId: fmt.Sprintf("bank-e2e-call-%d", n),
+	}
+}
+
+// requestTool sends body to route the way the daemon's transport does, with
+// one addition a real garmd would already have made: a Garm-Invocation
+// header carrying a fresh InvocationContext. Centralised here so every direct
+// call in this file gets one rather than each call site building its own.
+func requestTool(nc *nats.Conn, route string, body []byte, timeout time.Duration) (*nats.Msg, error) {
+	msg := nats.NewMsg(garmtool.Subject(route))
+	msg.Data = body
+	h, err := callctx.Encode(invocationContext())
+	if err != nil {
+		return nil, err
+	}
+	msg.Header.Set(callctx.Header, h)
+	return nc.RequestMsg(msg, timeout)
 }
 
 func callTool(t *testing.T, nc *nats.Conn, route string, req, resp proto.Message) {
@@ -127,7 +175,7 @@ func callTool(t *testing.T, nc *nats.Conn, route string, req, resp proto.Message
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg, err := nc.Request(garmtool.Subject(route), body, 3*time.Second)
+	msg, err := requestTool(nc, route, body, 3*time.Second)
 	if err != nil {
 		t.Fatalf("%s: %v", route, err)
 	}
@@ -302,8 +350,8 @@ func TestConcurrentRetriesOfOnePaymentStillMakeOnePayment(t *testing.T) {
 			if err != nil {
 				return
 			}
-			msg, err := nc.Request(
-				garmtool.Subject("/payments.v1.PaymentsService/InitiatePayment"),
+			msg, err := requestTool(nc,
+				"/payments.v1.PaymentsService/InitiatePayment",
 				body, 5*time.Second)
 			if err != nil {
 				return
