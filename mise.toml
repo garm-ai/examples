@@ -105,6 +105,39 @@ dir = "bank"
 depends = ["cli"]
 run = "garm catalogue build --proto proto -o bank.binpb --source garm-ai/examples/bank"
 
+[tasks."claims-cli"]
+description = "Install the garm CLI version claims-check-bank needs, isolated from the shared cli task"
+# Installed to its own GOBIN (examples/bin/claims-cli, already covered by
+# .gitignore's bin/) rather than the shared cli task's $GOPATH/bin, so it
+# cannot collide with or shadow the v0.11.0 garm that catalogue-bank and
+# every other task here installs and depends on. Those stay on v0.11.0,
+# unaffected — only claims-check-bank calls this binary, and by path, never
+# a bare `garm` that might resolve to either install.
+#
+# v0.12.0, not the latest real tag (v0.11.0): `claims check` landed after
+# v0.11.0 and does not exist in any tagged release yet. Until one is cut,
+# this install step fails loudly, naming the missing version — the honest
+# failure, contained to claims-check-bank, rather than a CLI that silently
+# lacks the subcommand or a repository-wide outage over one gate.
+run = "GOBIN=\"$PWD/bin/claims-cli\" go install github.com/garm-ai/garm/cmd/garm@v0.12.0"
+
+[tasks."claims-check-bank"]
+description = "Assert the bank claims policies only reference compartments and tool sets the catalogue declares"
+dir = "bank"
+depends = ["catalogue-bank", "claims-cli"]
+# catalogue-bank BUILDS bank.binpb every run rather than trusting whatever is
+# on disk — bank.binpb is gitignored and generated, and a stale copy would
+# make this gate authoritative about the wrong vocabulary: passing a policy
+# the real catalogue rejects, or failing one it accepts. It runs on the
+# ordinary v0.11.0 garm, which already builds catalogues fine and needs
+# nothing from claims-cli's install.
+run = """
+set -e
+GARM_CLAIMS="../bin/claims-cli/garm"
+"$GARM_CLAIMS" claims check auth/claims.yaml --against bank.binpb
+"$GARM_CLAIMS" claims check auth/personas.yaml --against bank.binpb
+"""
+
 [tasks."gen-check"]
 description = "Fail if the committed generated code is stale"
 # Generated code is COMMITTED here, because a Go module has to build from its
@@ -155,4 +188,4 @@ run = "go vet ./..."
 run = "go fmt ./..."
 
 [tasks.ci]
-depends = ["lint", "lint-bank", "check-bank", "build", "test", "gen-check"]
+depends = ["lint", "lint-bank", "check-bank", "claims-check-bank", "build", "test", "gen-check"]

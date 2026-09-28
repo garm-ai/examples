@@ -1,0 +1,51 @@
+# OpenFGA authorization model for the bank example.
+#
+# Two halves, load-bearing: platform types (identical in every deployment —
+# customer, employee, segment, agent) and bank's OWN instance types (account),
+# which is the payoff this file exists to show.
+#
+# An FGA store holds one model document; there is no include mechanism, so
+# both halves live here whole rather than as a shared fragment plus a diff. A
+# real deployment with more than one instance type would publish the platform
+# fragment once, have every consumer's model open with it verbatim, and check
+# that copy is unmodified — the same shape as `garm claims check`. Written
+# whole here so that constraint is visible rather than discovered later.
+#
+# Load with: fga model write --store-id <id> --file auth/model.fga
+model
+  schema 1.1
+
+# platform types — identical in every deployment
+type employee
+
+type customer
+  relations
+    # authority: which employee is allowed to act for this customer. This is
+    # what account.can_read below reads through `handled_by from owner`.
+    define handled_by: [employee]
+
+type segment
+  relations
+    define member: [customer, employee]
+
+type agent
+  relations
+    # entitlement: which segments may invoke this agent
+    define invokable_by: [segment#member]
+    define can_invoke: invokable_by
+
+# bank's own instance type. Everything above this line is platform; this is
+# the first thing that is bank's alone, and every other domain's account-like
+# type (a card, a payment) would be written the same way.
+type account
+  relations
+    define owner: [customer]
+    define servicer: [employee]
+    # `handled_by from owner` is the payoff of putting `handled_by` on
+    # `customer`: the employee assigned to a customer reads every one of that
+    # customer's accounts the moment `handled_by` is written once, with no
+    # per-account tuple. Without it, assigning jdoe to a customer with six
+    # accounts would mean writing six `servicer` tuples instead of one
+    # `handled_by` tuple, and a seventh account opened tomorrow would start
+    # unreadable until someone remembered to add a tuple for it.
+    define can_read: owner or servicer or handled_by from owner

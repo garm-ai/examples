@@ -1,0 +1,69 @@
+# SEED AND TEST DATA. This file is not a production source of truth and
+# nothing should reconcile it into a live store. In production the
+# application writes these tuples itself as customers sign up, employees are
+# assigned, and accounts are opened — it is world data, not policy. A GitOps
+# pipeline that reconciles ownership tuples from a file will, on a bad merge,
+# revoke a live customer's access to their own records. This file exists so
+# the static-authorizer path (and a developer's laptop) has something to
+# check against; it is not a template for how tuples reach a real store.
+#
+# Static authorization tuples matching model.fga, for a StaticAuthorizer
+# implementation used in development and CI. A production deployment reads
+# the same three facts from a live OpenFGA store instead — see model.fga —
+# and the two must agree, which is exactly what `garm claims check` cannot
+# verify for you: this file names identities and segments, not compartments
+# or tool sets, so it is not that gate's job.
+#
+# This checker does not resolve any graph — every relation is written in its
+# already-resolved form, not derived from another one. A customer's segment
+# membership does not by itself grant their employee's `handled_by`; that is
+# written directly, below.
+#
+# Identity convention: every principal/agent/employee/customer string is
+# TYPE-PREFIXED (customer:cust_ab12cd, employee:jdoe, agent:support-assistant),
+# matching the subject forms a minted token carries. Segment names are the one
+# exception: they are policy labels, not identities, so they stay bare — and
+# should match claims.yaml's `segments:` keys, the only segments the claims
+# policy knows how to turn into authority.
+#
+# cust_ab12cd and acct_ab12cd are bank's own fixture data (see ../data.go), so
+# a token minted from these tuples lines up with a real call against a
+# running bankd.
+
+# CanInvoke(principal, agent): may this identity reach this agent at all?
+# Both entries are needed, and for different reasons: the customer's own
+# entitlement covers a direct path, and the employee's covers the delegating
+# one — an employee acting for a customer is checked against can_invoke
+# twice, once for each, and either miss denies.
+can_invoke:
+  - principal: customer:cust_ab12cd
+    agent: agent:support-assistant
+  - principal: employee:jdoe
+    agent: agent:support-assistant
+
+# HandledBy(employee, customer): is this employee the one assigned to this
+# customer? Asked only when an employee acts on a customer's behalf — the
+# line between helping a customer and impersonating one. This single tuple is
+# also what makes account.can_read's `handled_by from owner` non-vacuous: see
+# model.fga.
+handled_by:
+  - employee: employee:jdoe
+    customer: customer:cust_ab12cd
+
+# InSegment(principal, segment): does this principal belong to this segment?
+# One member per segment claims.yaml declares, so every role in claims.yaml
+# has at least one worked-through principal behind it. An employee in no
+# segment resolves to no roles and is denied outright, so support-staff below
+# is required, not decorative: without it the handled_by tuple above could
+# never be exercised by anything.
+in_segment:
+  - principal: customer:cust_ab12cd
+    segment: retail
+  - principal: employee:jdoe
+    segment: support-staff
+  - principal: employee:amir
+    segment: fraud-team
+  - principal: employee:priya
+    segment: compliance-team
+  - principal: employee:sam
+    segment: payments-team

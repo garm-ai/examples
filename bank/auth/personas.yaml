@@ -1,0 +1,90 @@
+# Personas for the dev identity provider.
+#
+# A FILE, not a store, and deliberately so: everything here is configuration
+# that a pull request can argue about, the way bank's proto annotations are.
+# There is no create/update/delete endpoint, because a dev IdP with a CRUD API
+# starts to look like a product, and the next step after that is someone
+# pointing a staging environment at it.
+#
+#   garmdev idp --personas examples/bank/auth/personas.yaml
+#   curl -s '127.0.0.1:7450/token?user=jdoe'
+#   curl -s '127.0.0.1:7450/token?user=jdoe&as=support-assistant'   # delegated
+#
+# Same role NAMES as claims.yaml on purpose, so the two files read side by
+# side: this is the dev-mode stand-in for tuples.yaml plus claims.yaml, not an
+# approximation of a different policy.
+
+# A role is a BUNDLE of claims, and bundling is an identity provider's job.
+# garm never sees a role — it receives the clearance, compartments and verbs a
+# role expands to.
+roles:
+  support-desk:
+    clearance: INTERNAL
+    compartments: [pii-contact, financial]
+    verbs: [READ]
+    tool_sets: [support]
+
+  card-support:
+    clearance: CONFIDENTIAL
+    compartments: [card-data]
+    verbs: [READ, WRITE]
+    tool_sets: [support]
+
+  fraud-analyst:
+    clearance: CONFIDENTIAL
+    compartments: [financial, pii-contact, pii-identity]
+    verbs: [READ]
+    tool_sets: [support, compliance]
+
+  compliance-officer:
+    clearance: CONFIDENTIAL
+    compartments: [kyc]
+    verbs: [READ]
+    tool_sets: [compliance]
+
+  payments-ops:
+    clearance: RESTRICTED
+    compartments: [financial]
+    verbs: [READ, DESTRUCTIVE]
+    tool_sets: [payments]
+
+  retail-customer:
+    clearance: INTERNAL
+    compartments: [financial, pii-contact]
+    verbs: [READ]
+
+users:
+  # `subject` is what lands in `sub` and therefore in every ledger row. Real
+  # identity providers emit opaque subjects, and a dev tool that hid that
+  # would teach people to key dashboards on names.
+  jdoe:
+    subject: "employee:jdoe"
+    roles: [support-desk, card-support]
+
+  amir:
+    subject: "employee:amir"
+    roles: [fraud-analyst]
+
+  priya:
+    subject: "employee:priya"
+    roles: [compliance-officer]
+
+  sam:
+    subject: "employee:sam"
+    roles: [payments-ops]
+
+  # The customer behind bank's own fixture data (data.go's cust_ab12cd), so a
+  # token minted for her and a call against the running bank line up.
+  ada:
+    subject: "customer:cust_ab12cd"
+    roles: [retail-customer]
+
+agents:
+  # may_act_for is enforced when MINTING, and garm never sees it. garm folds a
+  # delegation chain it is given and can only narrow it. Try
+  # `?user=amir&as=support-assistant` and watch it refuse: amir is not in
+  # may_act_for below.
+  support-assistant:
+    subject: "agent:support-assistant"
+    roles: [support-desk]
+    may_act_for: [jdoe]

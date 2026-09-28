@@ -1,0 +1,119 @@
+# The claims policy: definitions and rules only. OpenFGA (auth/tuples.yaml in
+# a static build, or a live store) holds who is actually a member of which
+# segment — that assignment cannot live here; there are potentially millions
+# of customers. See auth/README.md.
+#
+# The compartments and tool sets below are named exactly as bank/v1/taxonomy.proto
+# declares them — that is the whole point of this file sitting beside proto/
+# rather than off in some other repository. `garm claims check` is the gate
+# that keeps the two from drifting; run it after any edit here:
+#
+#   garm claims check auth/claims.yaml --against bank.binpb
+
+# A role is a bundle of claims. Same meaning as personas.yaml's roles: block.
+# Clearance is written in the bare spelling (INTERNAL, not CLEARANCE_INTERNAL)
+# — garmd accepts both, and the bare form is what a human writes here.
+roles:
+  support-desk:
+    # get_customer's masked shape, get_balance and get_payment_status: the
+    # `support` set at the first-line ceiling. NOT list_cards — that tool is in
+    # the `support` set too, but it is compartmented `card-data` and this role
+    # does not hold it. A set narrows; it never grants. card-support below is
+    # the role that holds card-data.
+    clearance: INTERNAL
+    compartments: [pii-contact, financial]
+    verbs: [READ]
+    tool_sets: [support]
+
+  card-support:
+    # freeze_card / unfreeze_card. WRITE, not DESTRUCTIVE — cards.proto's
+    # linter refused DESTRUCTIVE here because a freeze is undone by the next
+    # call, and this role's verb ceiling has to agree with that grading.
+    clearance: CONFIDENTIAL
+    compartments: [card-data]
+    verbs: [READ, WRITE]
+    tool_sets: [support]
+
+  fraud-analyst:
+    # The unmasked get_customer shape: full email, full phone, full date of
+    # birth, the national identifier.
+    #
+    # Both sets, deliberately. An investigation starts from what first-line
+    # already saw (get_balance, get_payment_status, get_customer) and follows
+    # it into the compliance catalogue, and get_customer is annotated
+    # `sets: ["support", "compliance"]` precisely because it is reached from
+    # both. Naming only `compliance` would cut this role off from the balance
+    # and payment-status tools, which are in `support` and `payments`; naming
+    # nothing at all would not be "unscoped to first-line" but scoped to
+    # EVERYTHING, `payments` included, which is the opposite of what an
+    # analyst should hold.
+    #
+    # What stops the breadth from mattering is the compartments, which is
+    # screening.proto's point that clearance and compartments are different
+    # questions: this role sits one grade below RESTRICTED yet reaches
+    # pii-identity, which no amount of seniority alone would grant — and it
+    # holds neither kyc nor card-data, so screen_party and the card tools stay
+    # closed to it however many sets it names.
+    clearance: CONFIDENTIAL
+    compartments: [financial, pii-contact, pii-identity]
+    verbs: [READ]
+    tool_sets: [support, compliance]
+
+  compliance-officer:
+    # screen_party and the sanctions/PEP result. kyc is its own compartment,
+    # deliberately reachable by nobody above without it — and `compliance` is
+    # the set screening.proto annotates screen_party into, so this role names
+    # it. Both halves are load-bearing and neither substitutes for the other:
+    # the set decides which tools a session sees, the compartment decides
+    # whether the data inside them comes back.
+    clearance: CONFIDENTIAL
+    compartments: [kyc]
+    verbs: [READ]
+    tool_sets: [compliance]
+
+  payments-ops:
+    # initiate_payment (DESTRUCTIVE, RESTRICTED, gated on a human grant
+    # upstream of this policy) and get_payment_status (READ).
+    #
+    # Scoped to `payments`, which is the separation working in the direction
+    # this file controls. The other direction — a support session not reaching
+    # initiate_payment — is already settled by payments.proto annotating that
+    # tool `sets: ["payments"]` and nothing else; it holds no matter what any
+    # role here says, so claiming it as this role's doing would be claiming
+    # credit for the catalogue's work. What naming `payments` here decides is
+    # the reverse: a payments-ops session is confined to the payments
+    # catalogue and does not also get handed the first-line support tools.
+    # Omitting the field would not express "not in support" — it would leave
+    # the role in every set, support included.
+    clearance: RESTRICTED
+    compartments: [financial]
+    verbs: [READ, DESTRUCTIVE]
+    tool_sets: [payments]
+
+  retail-customer:
+    # Deliberately no tool_sets: this catalogue declares no self-service set
+    # yet, so a customer's own token reaches whatever it exposes at this
+    # ceiling rather than a narrower slice. Confining a customer to their OWN
+    # accounts (never another customer's) is `account.can_read` in model.fga
+    # — a per-record relation this policy cannot express and does not try to.
+    # Minting this role for `kind: customer` before that relation is enforced
+    # is a real clearance window, not a hypothetical one: see auth/README.md.
+    clearance: INTERNAL
+    compartments: [financial, pii-contact]
+    verbs: [READ]
+
+# Which segment grants which roles. Membership itself comes from OpenFGA.
+# A principal holding roles from more than one segment gets the UNION: the
+# highest clearance among them, and the union of compartments and verbs.
+segments:
+  support-staff:   { kind: employee, roles: [support-desk, card-support] }
+  fraud-team:      { kind: employee, roles: [fraud-analyst] }
+  compliance-team: { kind: employee, roles: [compliance-officer] }
+  payments-team:   { kind: employee, roles: [payments-ops] }
+  retail:          { kind: customer, roles: [retail-customer] }
+
+# An agent's own authority. The fold turns it into a ceiling automatically —
+# delegation intersects, but that narrowing happens in the verifying daemon,
+# never here.
+agents:
+  support-assistant: { roles: [support-desk] }
