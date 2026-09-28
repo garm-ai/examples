@@ -356,8 +356,14 @@ func TestConcurrentRetriesOfOnePaymentStillMakeOnePayment(t *testing.T) {
 			if err != nil {
 				return
 			}
+			if code := msg.Header.Get("Nats-Service-Error-Code"); code != "" {
+				// A refused call must not count as an answer, or sixteen
+				// refusals would look like one idempotent success.
+				t.Errorf("call refused: %s %s", code, msg.Header.Get("Nats-Service-Error"))
+				return
+			}
 			var resp paymentsv1.InitiatePaymentResponse
-			if proto.Unmarshal(msg.Data, &resp) == nil {
+			if proto.Unmarshal(msg.Data, &resp) == nil && resp.GetPaymentId() != "" {
 				ids <- resp.GetPaymentId()
 			}
 		}()

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	calcv1 "github.com/garm-ai/examples/calculator/gen/calc/v1"
-	"github.com/garm-ai/tool-go/garmtool"
 	"github.com/nats-io/nats.go"
 	"google.golang.org/protobuf/proto"
 )
@@ -31,13 +30,16 @@ func BenchmarkCallAdd(b *testing.B) {
 	nc := benchConn(b)
 	a, bb := 2.5, 4.0
 	req, _ := proto.Marshal(&calcv1.AddRequest{A: &a, B: &bb})
-	subject := garmtool.Subject("/calc.v1.Calculator/Add")
+	route := "/calc.v1.Calculator/Add"
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		msg, err := nc.Request(subject, req, benchTimeout)
+		msg, err := requestTool(nc, route, req, benchTimeout)
 		if err != nil {
 			b.Fatal(err)
+		}
+		if code := msg.Header.Get("Nats-Service-Error-Code"); code != "" {
+			b.Fatalf("refused: %s %s (a benchmark of the refusal path measures nothing)", code, msg.Header.Get("Nats-Service-Error"))
 		}
 		var resp calcv1.AddResponse
 		if err := proto.Unmarshal(msg.Data, &resp); err != nil {
@@ -51,7 +53,7 @@ func BenchmarkCallAdd(b *testing.B) {
 // that shows up.
 func BenchmarkCallSummarize(b *testing.B) {
 	nc := benchConn(b)
-	subject := garmtool.Subject("/calc.v1.Calculator/Summarize")
+	route := "/calc.v1.Calculator/Summarize"
 
 	for _, n := range []int{10, 100, 1000, 10000} {
 		b.Run(fmt.Sprintf("%dvalues", n), func(b *testing.B) {
@@ -63,9 +65,12 @@ func BenchmarkCallSummarize(b *testing.B) {
 			b.SetBytes(int64(len(req)))
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				msg, err := nc.Request(subject, req, benchTimeout)
+				msg, err := requestTool(nc, route, req, benchTimeout)
 				if err != nil {
 					b.Fatal(err)
+				}
+				if code := msg.Header.Get("Nats-Service-Error-Code"); code != "" {
+					b.Fatalf("refused: %s", code)
 				}
 				var resp calcv1.SummarizeResponse
 				if err := proto.Unmarshal(msg.Data, &resp); err != nil {
@@ -84,13 +89,17 @@ func BenchmarkCallParallel(b *testing.B) {
 	nc := benchConn(b)
 	a, bb := 2.5, 4.0
 	req, _ := proto.Marshal(&calcv1.AddRequest{A: &a, B: &bb})
-	subject := garmtool.Subject("/calc.v1.Calculator/Add")
+	route := "/calc.v1.Calculator/Add"
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			if _, err := nc.Request(subject, req, benchTimeout); err != nil {
+			msg, err := requestTool(nc, route, req, benchTimeout)
+			if err != nil {
 				b.Fatal(err)
+			}
+			if code := msg.Header.Get("Nats-Service-Error-Code"); code != "" {
+				b.Fatalf("refused: %s", code)
 			}
 		}
 	})
