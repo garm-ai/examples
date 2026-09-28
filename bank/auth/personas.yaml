@@ -14,6 +14,14 @@
 # side: this is the dev-mode stand-in for tuples.yaml plus claims.yaml, not an
 # approximation of a different policy.
 
+# Every persona in this file belongs to the bank, and every token minted from
+# it says so. The STS refuses to exchange a subject token whose tenant is
+# empty — confinement depends on the value flowing from a verified token — so
+# without this line both doors fail at the exchange with an access_denied that
+# says nothing about tenants. `garmdev idp --tenant` overrides it; a persona's
+# own `tenant:` overrides both. See devkit's README.
+tenant: bank
+
 # A role is a BUNDLE of claims, and bundling is an identity provider's job.
 # garm never sees a role — it receives the clearance, compartments and verbs a
 # role expands to.
@@ -59,7 +67,20 @@ users:
   # would teach people to key dashboards on names.
   jdoe:
     subject: "employee:jdoe"
-    roles: [support-desk, card-support]
+    # Three roles, and the third is the one the agent demo turns on.
+    #
+    # The fold intersects, so an assistant acting for jdoe reaches
+    # initiate_payment only if jdoe reaches it too. A support agent who could
+    # not move money themselves and whose assistant could would be the
+    # confused deputy this system exists to prevent, so jdoe holds
+    # payments-ops outright — a payments clerk who also works the phones.
+    #
+    # What stops jdoe simply paying without asking anybody is not this file:
+    # it is initiate_payment's MODE_GRANT and approver predicate, and spec
+    # §3.5's exclusion of the run's own subject, which is what makes this
+    # four-eyes rather than a formality. jdoe qualifies for that predicate
+    # arithmetically and is refused anyway; see bank/auth_test.go.
+    roles: [support-desk, card-support, payments-ops]
 
   amir:
     subject: "employee:amir"
@@ -84,7 +105,14 @@ agents:
   # delegation chain it is given and can only narrow it. Try
   # `?user=amir&as=support-assistant` and watch it refuse: amir is not in
   # may_act_for below.
+  #
+  # Same two roles as claims.yaml's agents: block, and for the same reason:
+  # this file is the dev-mode stand-in for what claims.yaml computes from a
+  # real STS exchange, so a role list that drifted from claims.yaml would mean
+  # the devkit path and the governed path grant the assistant different
+  # authority for the same identity — exactly the disagreement auth/README.md
+  # says these two files must not have.
   support-assistant:
     subject: "agent:support-assistant"
-    roles: [support-desk]
+    roles: [support-desk, payments-ops]
     may_act_for: [jdoe]

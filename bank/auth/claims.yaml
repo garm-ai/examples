@@ -116,4 +116,17 @@ segments:
 # delegation intersects, but that narrowing happens in the verifying daemon,
 # never here.
 agents:
-  support-assistant: { roles: [support-desk] }
+  # Two roles, because the assistant reaches two catalogues. support-desk is
+  # the first-line shape it uses for get_customer; payments-ops is what makes
+  # initiate_payment visible at all — RESTRICTED, `financial`, DESTRUCTIVE and
+  # the `payments` set, every one of which the tool requires.
+  #
+  # This is the ceiling and not a grant. The fold takes the minimum of this and
+  # whoever the run acts for, so an assistant acting for a first-line agent who
+  # holds none of it reaches none of it; what this block decides is only that
+  # the AGENT is not the reason the payment is unreachable. Removing
+  # payments-ops here makes the payment invisible to every run, whoever asked.
+  #
+  # It must stay at least as wide as support_assistant.proto's `principal`
+  # block, or lint rule A3 and this file disagree about what the agent is.
+  support-assistant: { roles: [support-desk, payments-ops] }

@@ -56,6 +56,37 @@ operation, it is policy and belongs above. If a customer support call or a
 sign-up flow would change it, it is world data, and `tuples.yaml` is a
 fixture standing in for a store, not a source of truth for one.
 
+## The agent, and why jdoe gained a role
+
+`claims.yaml`'s `agents:` block is the assistant's own authority, and it names
+two roles because the assistant reaches two catalogues: `support-desk` for
+`get_customer` and `payments-ops` for `initiate_payment`. It must stay at least
+as wide as the `principal` block in
+`proto/bank/agents/v1/support_assistant.proto`, or lint rule A3 refuses the
+build — an agent may not list a tool it could never call.
+
+`personas.yaml`'s `jdoe` gained `payments-ops` for a different reason, and the
+distinction is worth keeping straight. Delegation **intersects**: garmd folds
+the chain and takes the minimum of every identity in it, so an assistant acting
+for jdoe can reach `initiate_payment` only if **both** sides can. Widening the
+agent alone does nothing. An agent that could reach further than the human it
+acts for would be the confused deputy the fold exists to prevent, so the
+widening has to be on the human too, and it has to be visible — which is what
+this paragraph is for.
+
+What stops jdoe paying unsupervised is not this file. It is
+`initiate_payment`'s `MODE_GRANT`, its `approver_min_clearance: RESTRICTED` and
+`approver_compartments: [financial]`, and spec §3.5's rule that the run's own
+subject is excluded from the approver predicate. jdoe satisfies that predicate
+arithmetically and is refused anyway: that exclusion is the four eyes.
+
+`tuples.yaml` gains `employee:jdoe in_segment payments-team` so the STS path
+resolves the same authority the devkit path does — the two files are one policy
+written for two readers — and a `can_run` relation, which is what STS exchange 2
+checks before minting for a runner. `can_invoke` asks whether a human may reach
+an agent; `can_run` asks whether the process presenting that human's assertion
+is one this deployment deployed to run it.
+
 ## Verifying the vocabulary agrees
 
 `proto/` declares compartments and tool sets; `claims.yaml` and
