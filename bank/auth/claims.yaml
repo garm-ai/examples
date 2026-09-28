@@ -1,0 +1,86 @@
+# The claims policy: definitions and rules only. OpenFGA (auth/tuples.yaml in
+# a static build, or a live store) holds who is actually a member of which
+# segment — that assignment cannot live here; there are potentially millions
+# of customers. See auth/README.md.
+#
+# Compartments and the tool set below are named exactly as bank/v1/taxonomy.proto
+# declares them — that is the whole point of this file sitting beside proto/
+# rather than off in some other repository. `garm claims check` is the gate
+# that keeps the two from drifting; run it after any edit here:
+#
+#   garm claims check auth/claims.yaml --against bank.binpb
+
+# A role is a bundle of claims. Same meaning as personas.yaml's roles: block.
+# Clearance is written in the bare spelling (INTERNAL, not CLEARANCE_INTERNAL)
+# — garmd accepts both, and the bare form is what a human writes here.
+roles:
+  support-desk:
+    # get_customer's masked shape and list_cards, at the first-line ceiling.
+    clearance: INTERNAL
+    compartments: [pii-contact, financial]
+    verbs: [READ]
+    tool_sets: [support]
+
+  card-support:
+    # freeze_card / unfreeze_card. WRITE, not DESTRUCTIVE — cards.proto's
+    # linter refused DESTRUCTIVE here because a freeze is undone by the next
+    # call, and this role's verb ceiling has to agree with that grading.
+    clearance: CONFIDENTIAL
+    compartments: [card-data]
+    verbs: [READ, WRITE]
+    tool_sets: [support]
+
+  fraud-analyst:
+    # The unmasked get_customer shape: full email, full phone, full date of
+    # birth, the national identifier. No tool_sets — this role is not scoped
+    # to the first-line catalogue at all, which is the point of screening.proto's
+    # remark that clearance and compartments are different questions: this
+    # role is two grades below RESTRICTED but reaches pii-identity, which no
+    # amount of seniority alone would grant.
+    clearance: CONFIDENTIAL
+    compartments: [financial, pii-contact, pii-identity]
+    verbs: [READ]
+
+  compliance-officer:
+    # screen_party and the sanctions/PEP result. kyc is its own compartment,
+    # deliberately reachable by nobody above without it.
+    clearance: CONFIDENTIAL
+    compartments: [kyc]
+    verbs: [READ]
+
+  payments-ops:
+    # initiate_payment (DESTRUCTIVE, RESTRICTED, gated on a human grant
+    # upstream of this policy) and get_payment_status (READ). Not in the
+    # `support` set: payments.proto's comment is explicit that a support
+    # session must not reach this even when the human behind it could.
+    clearance: RESTRICTED
+    compartments: [financial]
+    verbs: [READ, DESTRUCTIVE]
+
+  retail-customer:
+    # Deliberately no tool_sets: this catalogue declares no self-service set
+    # yet, so a customer's own token reaches whatever it exposes at this
+    # ceiling rather than a narrower slice. Confining a customer to their OWN
+    # accounts (never another customer's) is `account.can_read` in model.fga
+    # — a per-record relation this policy cannot express and does not try to.
+    # Minting this role for `kind: customer` before that relation is enforced
+    # is a real clearance window, not a hypothetical one: see auth/README.md.
+    clearance: INTERNAL
+    compartments: [financial, pii-contact]
+    verbs: [READ]
+
+# Which segment grants which roles. Membership itself comes from OpenFGA.
+# A principal holding roles from more than one segment gets the UNION: the
+# highest clearance among them, and the union of compartments and verbs.
+segments:
+  support-staff:   { kind: employee, roles: [support-desk, card-support] }
+  fraud-team:      { kind: employee, roles: [fraud-analyst] }
+  compliance-team: { kind: employee, roles: [compliance-officer] }
+  payments-team:   { kind: employee, roles: [payments-ops] }
+  retail:          { kind: customer, roles: [retail-customer] }
+
+# An agent's own authority. The fold turns it into a ceiling automatically —
+# delegation intersects, but that narrowing happens in the verifying daemon,
+# never here.
+agents:
+  support-assistant: { roles: [support-desk] }
