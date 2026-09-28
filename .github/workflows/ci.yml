@@ -25,6 +25,12 @@ jobs:
       # Generated code is committed, so it can go stale. This is what stops
       # a .proto change from shipping without the binding that matches it.
       - run: mise run gen-check
+      # Every compartment and tool set the bank's claims policies name must
+      # be one the catalogue actually declares — a name it drops is dropped
+      # silently at verify time, never rejected. The task builds the
+      # catalogue itself rather than trusting bank.binpb on disk, which is
+      # gitignored and generated, so a stale copy can never pass this.
+      - run: mise run claims-check-bank
 
   # What does merging this change about who may see what?
   #
