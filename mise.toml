@@ -62,8 +62,10 @@ run = "go install github.com/garm-ai/garm/cmd/garm@v0.14.0"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
-# bump to v0.2.0 when Track A tags
-run = "go install github.com/garm-ai/garmd/cmd/garmd@v0.1.0"
+# Interim pin at a commit, not a tag: v0.2.0 is not published yet, but
+# feat/agent-mvp@407b83e already sends Garm-Invocation on every hop, which
+# the projection test needs. E4 moves this to the tag once Track A cuts it.
+run = "go install github.com/garm-ai/garmd/cmd/garmd@407b83e"
 
 [tasks."check-bank"]
 description = "Assert the bank catalogue mounts where it should and refuses where it should not"
