@@ -162,6 +162,40 @@ garm claims check auth/claims.yaml   --against bank.binpb
 garm claims check auth/personas.yaml --against bank.binpb
 """
 
+[tasks."prompt-sha"]
+description = "Recompute every agent prompt hash and write it into the annotation"
+dir = "bank"
+# The hash is in the proto because the runner verifies the prompt it fetched
+# against it — so the annotation has to be rewritten whenever the prompt
+# changes, and doing that by hand is how a pin goes stale. sed with -i.bak and
+# -E is the spelling that works on both BSD and GNU sed; the .bak is removed
+# rather than left for .gitignore to catch.
+run = """
+set -e
+SUM=$(shasum -a 256 prompts/support-assistant.md | cut -d' ' -f1)
+F=proto/bank/agents/v1/support_assistant.proto
+sed -i.bak -E "s/(sha256: \\")[0-9a-f]{64}(\\")/\\1${SUM}\\2/" "$F"
+rm -f "$F.bak"
+echo "support-assistant: $SUM"
+"""
+
+[tasks."prompt-sha-check"]
+description = "Fail if a committed prompt hash no longer matches its prompt"
+dir = "bank"
+# Same shape as gen-check, and for the same reason: the thing that can go
+# stale is committed, so something has to notice. Scoped to the one proto so
+# an unrelated edit in the working tree does not fail it.
+run = """
+set -e
+mise run prompt-sha
+if ! git diff --quiet -- proto/bank/agents/v1/support_assistant.proto; then
+  echo "a prompt changed and its pinned sha256 did not — run 'mise run prompt-sha' and commit:" >&2
+  git diff -- proto/bank/agents/v1/support_assistant.proto >&2
+  exit 1
+fi
+echo "ok: every prompt hash matches its file"
+"""
+
 [tasks."gen-check"]
 description = "Fail if the committed generated code is stale"
 # Generated code is COMMITTED here, because a Go module has to build from its
@@ -212,4 +246,4 @@ run = "go vet ./..."
 run = "go fmt ./..."
 
 [tasks.ci]
-depends = ["lint", "lint-bank", "check-bank", "claims-check-bank", "build", "test", "gen-check"]
+depends = ["lint", "lint-bank", "check-bank", "claims-check-bank", "prompt-sha-check", "build", "test", "gen-check"]

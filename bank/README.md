@@ -9,11 +9,12 @@ three hundred engineers?**
 
 ```
 proto/
-  bank/v1/        the taxonomy — which compartments and tool sets exist at all
-  accounts/v1/    balances and customer details
-  cards/v1/       card state, in PCI scope
-  payments/v1/    moving money
-  screening/v1/   sanctions and PEP screening
+  bank/v1/          the taxonomy — which compartments and tool sets exist at all
+  bank/agents/v1/   the support assistant — the bank's first agent
+  accounts/v1/      balances and customer details
+  cards/v1/         card state, in PCI scope
+  payments/v1/      moving money
+  screening/v1/     sanctions and PEP screening
 ```
 
 ## What each domain is here to teach
@@ -234,10 +235,108 @@ every one of them teaches people to route around the check — what it must neve
 be is invisible. `--fail-on-widening` is there for where you want the gate,
 with an override a named human applies.
 
+## The first agent: `support_assistant`
+
+`proto/bank/agents/v1/support_assistant.proto` declares the bank's first
+agent, `bank.agents.v1.SupportAssistant`, as a proto service beside the tools
+it uses — the same review, the same `mise run diff-bank`, as any other tool
+change.
+
+Two annotations answer two different questions. `(garm.agent.v1.agent)` on
+the service is what the agent **runs as**: the authority it requests, the
+tools it may reach, its model alias and its bounds. `(garm.tool.v1.tool)` on
+each RPC is what a **caller** needs in order to see and start it. A caller who
+can see `support_assistant` in the catalogue is not thereby granted anything
+the agent itself runs as — those are two separate principals folded together
+at run time.
+
+**What it is allowed to call.** The agent's `principal` is
+`CLEARANCE_RESTRICTED` with the `financial` and `pii-contact` compartments —
+the floor at which both of its tools are visible, and nothing wider. Its
+allowlist, by catalogue FQN, is exactly two tools:
+
+- `accounts.v1.get_customer`, with no guard.
+- `payments.v1.initiate_payment`, guarded by
+  `args.amount_minor_units <= 500000` — a ceiling *below* the tool's own
+  limit (`1_000_000_000`), evaluated in the runner before the call leaves.
+  The guard narrows and never widens: the tool's own validation, clearance
+  and grant all still apply on top, so a run cannot propose more than
+  £5,000.00 in the account currency even though the tool itself would accept
+  it, and any amount it does propose still needs the human grant
+  `initiate_payment` already requires.
+
+Lint rule A3 ("an agent may not list a tool it could never call") is why the
+principal is `RESTRICTED` and not `CONFIDENTIAL`: `initiate_payment` declares
+`min_clearance: CLEARANCE_RESTRICTED`, one grade above `CONFIDENTIAL`, and a
+narrower principal would make the payment tool unreachable while still being
+listed.
+
+**The two RPCs, and A5.** `Invoke` (tool name `support_assistant`) starts a
+run and returns a `RunRef` immediately; `GetRun` (tool name
+`support_assistant_run`) reads its state and, once finished, its result. Both
+declare identical `min_clearance: CLEARANCE_INTERNAL`, empty `compartments`,
+and `sets: ["support"]` — so a caller who can start a run can read its result,
+and no one else can. That equality is asserted in
+`bank/agent_test.go`'s `TestInvokeAndGetRunAreVisibleToExactlyTheSameCallers`.
+Lint rule A5, which checks this on the CLI, ships in garm v0.14.1; this repo
+is pinned to v0.14.0, so today `mise run lint-bank` does not check it and the
+equality above is enforced only by `bank/agent_test.go`, until the pin moves.
+
+`Invoke` declares only `effects: { idempotent: false }` and leaves
+`reversibility` and `external` unset. An irreversible external tool with no
+approval mode is lint rule L16, and `MODE_NOTIFY` — the weakest mode that
+would satisfy it — cannot mount on any deployment in this MVP. Starting a run
+is not idempotent (two `Invoke`s are two runs) but leaves nothing external by
+itself; the external, irreversible effect a run may cause is
+`payments.v1.initiate_payment`'s, which declares and gates that on its own
+account.
+
+**Where the prompt lives and how it is pinned.** The system prompt is
+`bank/prompts/support-assistant.md`, published verbatim — it is the product,
+not documentation of one. The proto's `prompts["system"]` entry names its
+path and pins a lowercase-hex SHA-256 of its bytes with no prefix. `garm
+catalogue publish` — a CLI subcommand still in progress upstream, not present
+in the pinned v0.14.0 `garm` this repo builds with — is designed to upload the
+file as `prompts/<sha256>.md`; once it ships, a runner fetching that object is
+meant to refuse to start the agent if the prompt it fetched does not hash to
+the value the catalogue declares. Nothing here uploads to object storage yet.
+
+That pin only protects anything while it is the hash of the file actually in
+this tree, and editing a prompt is the change nobody thinks of as a code
+change — so two things keep it honest:
+
+- `mise run prompt-sha` recomputes the hash from
+  `prompts/support-assistant.md` and rewrites the `sha256:` field in
+  `proto/bank/agents/v1/support_assistant.proto` in place.
+- `mise run prompt-sha-check` (part of `mise run ci`) reruns `prompt-sha` and
+  fails if that rewrite changes anything committed — a stale pin is a red
+  build, not a runner that refuses the agent at deploy time.
+- `bank/agent_test.go`'s
+  `TestTheDeclaredPromptHashIsTheHashOfThePromptInThisTree` reads the file the
+  proto names, hashes it, and fails if that does not match the declared
+  `sha256`, so the same drift is caught by `go test` even outside `mise run
+  ci`.
+
+**What mounting proves, and what it does not.** `garmd` mounts `Invoke` and
+`GetRun` as two ordinary governed tools and never reads the
+`(garm.agent.v1.agent)` annotation at all — it is agent-blind by design, so a
+change to what an agent runs as can never affect what garmd itself decides to
+serve. `mise run check-bank` builds the full ten-tool catalogue (the eight
+tools the bank already had, plus `support_assistant` and
+`support_assistant_run`) and asserts only that adding the agent does not make
+the bank unmountable. It says nothing about whether an agent runner exists to
+serve `SupportAssistant` — nothing in this repository implements it, and the
+generated `SupportAssistantHandler` interface in
+`bank/gen/bank/agents/v1/bankagentsv1_micro.pb.go` is deliberately
+unimplemented here: `agentd` serves this service dynamically from the
+catalogue, not from a Go binding compiled into the bank.
+
 ## Running it
 
 ```bash
 mise run lint-bank         # the governance linter
 mise run gen-bank          # messages and tool bindings
 mise run catalogue-bank    # the artifact a daemon loads
+mise run prompt-sha        # rewrite an agent's prompt hash after editing its prompt
+mise run prompt-sha-check  # fail if a committed prompt hash has drifted from its file
 ```

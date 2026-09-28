@@ -1,0 +1,184 @@
+// The bank's first agent, and the reason a manifest is a proto file.
+//
+// An agent is a service like any other in this tree: it sits beside the tools
+// it uses, it is reviewed by the same people on the same pull request, and a
+// change to what it may reach shows up as a proto diff that `mise run
+// diff-bank` reports. A manifest in a YAML bundle somewhere else would be
+// none of those things.
+//
+// Two annotations, answering two different questions. (garm.agent.v1.agent)
+// is what this agent RUNS AS — the authority it requests, the tools it may
+// reach, the model and the bounds. (garm.tool.v1.tool) on each RPC is what a
+// CALLER needs in order to see and start it. They are not the same question
+// and conflating them is how an agent ends up reachable by everyone who can
+// see one of the tools inside it.
+syntax = "proto3";
+
+package bank.agents.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/agent/v1/agent.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1";
+
+// What a caller hands the agent.
+//
+// Two fields and no more. An agent whose input is a free-form blob is one
+// nobody can review, because the request is where a caller's intent enters
+// the system and a schema is the only place that intent can be constrained
+// before a model reads it.
+message SupportRequest {
+  // Requests are never sanitised on the way in — min_clearance on the RPC
+  // governs who may call at all — so PUBLIC here says nothing about who may
+  // start a run. mask rather than omit because omit on a presence-less scalar
+  // makes "redacted" and "empty" the same value (L6).
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  // The customer this run is about. Constrained to the bank's own identifier
+  // shape so a request naming something that cannot be a customer is refused
+  // before a model spends a token on it.
+  string customer_id = 1 [(buf.validate.field).required = true,
+                          (buf.validate.field).string.pattern = "^cust_[a-z0-9]{6,32}$"];
+
+  // What the member of staff is asking for, in their own words. Bounded
+  // because an unbounded string is a prompt-injection surface with a token
+  // bill attached, and 2000 characters is more than any support request needs.
+  string request = 2 [(buf.validate.field).required = true,
+                      (buf.validate.field).string.min_len = 1,
+                      (buf.validate.field).string.max_len = 2000];
+}
+
+service SupportAssistant {
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+
+    // What the agent runs as, which is a REQUEST rather than a grant: the STS
+    // mints the agent's own claim from auth/claims.yaml, and garmd folds it
+    // against the human's by intersection. This block therefore has to be at
+    // least as wide as every tool below, or lint rule A3 refuses the build —
+    // an agent may not list a tool it could never call.
+    //
+    // RESTRICTED because initiate_payment declares min_clearance RESTRICTED.
+    // Both compartments because get_customer needs pii-contact and
+    // initiate_payment needs financial. Nothing wider: this is the ceiling the
+    // fold can never exceed, so every name here is authority the agent keeps
+    // even when the human on the other end has more.
+    principal: {
+      clearance: CLEARANCE_RESTRICTED
+      compartments: ["financial", "pii-contact"]
+    }
+
+    // An alias, never a model id. Which model "fast" resolves to is a
+    // deployment decision in agentd's config; putting an id here would make
+    // changing providers a schema change reviewed by the wrong people.
+    model: { alias: "fast" }
+
+    // Bounds are the answer to "what does this cost when it goes wrong".
+    // timeout is ACTIVE time — waiting on a human approval does not count
+    // against it, or every payment needing a grant would time out.
+    bounds: {
+      max_steps: 12
+      max_tokens: 200000
+      max_tool_calls: 30
+      timeout: { seconds: 600 }
+    }
+
+    // A map entry list, which is how textproto spells a map field. The runner
+    // fetches this file by hash from object storage and refuses the agent by
+    // name if the bytes do not match — so the hash below must be the hash of
+    // prompts/support-assistant.md in this tree. `mise run prompt-sha`
+    // rewrites it; bank/agent_test.go fails the build when it has drifted.
+    prompts: [{
+      key: "system"
+      value: {
+        path: "prompts/support-assistant.md"
+        sha256: "0654986860461c19d2cb12f84af3915f82efc846c79659962696de224abbd5a4"
+      }
+    }]
+
+    // The allowlist, by catalogue FQN — <proto package>.<tool name>, which is
+    // the key garmd's tool.Def already uses. A method path here is a lint
+    // error. The model is shown these and nothing else, so a tool removed from
+    // the catalogue disappears from the next generation rather than being
+    // hallucinated into one.
+    tools: [
+      { fqn: "accounts.v1.get_customer" },
+      // A ceiling below the tool's own. initiate_payment accepts up to
+      // 1_000_000_000 minor units; this agent may propose at most 5000.00 in
+      // the account currency, evaluated in the runner before the call leaves.
+      // It narrows and never widens: the tool's own validation, clearance and
+      // grant all still apply on top.
+      {
+        fqn: "payments.v1.initiate_payment"
+        guard: "args.amount_minor_units <= 500000"
+      }
+    ]
+  };
+
+  // The governed door. Returns immediately with a reference, because the
+  // accept happens before the token exchange that may refuse this caller —
+  // a caller who could not have been acted for learns it from GetRun as
+  // FAILED, never from an Invoke that hangs.
+  rpc Invoke(SupportRequest) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "support_assistant"
+      title: "Ask the support assistant"
+      description: "Start a support-assistant run for one customer. Returns a "
+                   "run reference immediately; the answer is collected with "
+                   "support_assistant_run. The run acts for the caller and can "
+                   "reach only what both the caller and the agent may reach."
+      verb: VERB_WRITE
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: []
+      sets: ["support"]
+      // Only what is certainly true. Two Invokes are two runs, so this is not
+      // idempotent. reversibility and external are deliberately UNSET: an
+      // irreversible external tool with no approval mode is lint rule L16, and
+      // MODE_NOTIFY — the weakest mode that would satisfy it — cannot mount on
+      // any deployment in this MVP. Starting a run leaves nothing anyway; the
+      // payment it may propose does, and payments.v1.initiate_payment declares
+      // and gates that on its own account.
+      effects: { idempotent: false }
+      guidance: {
+        when_to_use: "A member of staff has a customer request in words and "
+                     "wants it worked through the bank's tools."
+        when_not_to_use: "Never to perform an action you could perform "
+                         "directly. A run is slower, costs tokens, and puts a "
+                         "model between you and a tool you can already reach."
+        on_error: "A refusal here is about YOUR authority to start a run, not "
+                  "about the customer or the request. Do not rephrase and "
+                  "retry."
+      }
+    };
+  }
+
+  // The second RPC, and the one lint exception this MVP carries: agent-plane
+  // §3.1 says exactly one rpc per agent service, and this is the placeholder
+  // for the async spine's job shape. It goes away when SHAPE_JOB arrives.
+  //
+  // A5 requires identical min_clearance, compartments and sets on both: a
+  // caller who can start a run can read its result, and no one else can.
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "support_assistant_run"
+      title: "Read a support-assistant run"
+      description: "The state and, once finished, the result of one run. "
+                   "Answers not-found for a run the caller did not start."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: []
+      sets: ["support"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "After Invoke, to collect the answer."
+        when_not_to_use: "Do not poll faster than once a second. Every poll is "
+                         "a governed call and a ledger row."
+      }
+    };
+  }
+}
