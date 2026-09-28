@@ -33,7 +33,7 @@ description = "Install the tool generator at the pinned version"
 # Pinned, not @latest: the generated binding carries a descriptor hash, and a
 # generator that moved under you changes committed output for no reason
 # anyone asked for.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.14.0"
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.14.2"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -58,7 +58,7 @@ description = "Install the garm CLI at the pinned version"
 # v0.14.0 is the first tag carrying `claims check`, the garm.agent.v1
 # annotation, lint A1-A5 and `catalogue publish`, so the separate claims-cli
 # install that existed while those were untagged is gone.
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.14.0"
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.14.2"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
