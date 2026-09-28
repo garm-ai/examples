@@ -2,6 +2,7 @@ package bank_test
 
 import (
 	"os"
+	"slices"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -181,7 +182,41 @@ func TestAJdoeRunActingAsTheAssistantCanReachBothOfItsTools(t *testing.T) {
 // amir is the near miss the design assumed would qualify — RESTRICTED in
 // nobody's file, CONFIDENTIAL in this one, holding `financial` all the same —
 // and a near miss on one axis has to be a denial, or the axis is decoration.
-func TestOnlySamSatisfiesTheApproverPredicateForAPayment(t *testing.T) {
+// claims.yaml is the file the real STS mints the agent's claim from, and
+// personas.yaml is the devkit stand-in for the same fact. The comments in
+// both say they must not drift; this is the assertion behind the comment.
+// Without it, reverting claims.yaml's agent to [support-desk] keeps every
+// other gate green while the governed door silently loses the payment tool.
+func TestTheAgentHoldsTheSameRolesInClaimsAndPersonas(t *testing.T) {
+	raw, err := os.ReadFile("auth/claims.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Agents map[string]struct {
+			Roles []string `yaml:"roles"`
+		} `yaml:"agents"`
+	}
+	if err := yaml.Unmarshal(raw, &c); err != nil {
+		t.Fatal(err)
+	}
+	got := sortedCopy(c.Agents["support-assistant"].Roles)
+	want := sortedCopy(loadPersonas(t).Agents["support-assistant"].Roles)
+	if len(got) == 0 {
+		t.Fatal("auth/claims.yaml declares no roles for agent support-assistant")
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("agent roles drift: claims.yaml %v, personas.yaml %v — the governed and devkit doors would grant different authority", got, want)
+	}
+}
+
+func sortedCopy(in []string) []string {
+	out := slices.Clone(in)
+	slices.Sort(out)
+	return out
+}
+
+func TestOnlySamAndTheRequesterSatisfyTheApproverPredicateForAPayment(t *testing.T) {
 	f := loadPersonas(t)
 	a := initiatePaymentPolicy(t).GetApproval()
 
