@@ -25,12 +25,27 @@ jobs:
       # Generated code is committed, so it can go stale. This is what stops
       # a .proto change from shipping without the binding that matches it.
       - run: mise run gen-check
-      # Every compartment and tool set the bank's claims policies name must
-      # be one the catalogue actually declares — a name it drops is dropped
-      # silently at verify time, never rejected. The task builds the
-      # catalogue itself rather than trusting bank.binpb on disk, which is
-      # gitignored and generated, so a stale copy can never pass this.
-      - run: mise run claims-check-bank
+
+  # Every compartment and tool set the bank's claims policies name must be one
+  # the catalogue actually declares — a name it does not is dropped silently at
+  # verify time, never rejected. The task builds the catalogue itself rather
+  # than trusting bank.binpb on disk, which is gitignored and generated, so a
+  # stale copy can never pass this.
+  #
+  # Its own job, matching devkit and sts, and for the reason they have one:
+  # this gate installs the garm CLI at v0.12.0, which is not tagged yet, so
+  # until it is the step fails on every run. In the `ci` job that failure
+  # would land on lint/build/test — the job most likely to be a required
+  # check — and turn every unrelated pull request red. Here it is contained
+  # to the one thing that is actually missing a release.
+  claims:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v2
+        with: { install: true, cache: true }
+      - name: auth/claims.yaml and auth/personas.yaml against a freshly built bank catalogue
+        run: mise run claims-check-bank
 
   # What does merging this change about who may see what?
   #

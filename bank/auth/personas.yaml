@@ -34,16 +34,19 @@ roles:
     clearance: CONFIDENTIAL
     compartments: [financial, pii-contact, pii-identity]
     verbs: [READ]
+    tool_sets: [support, compliance]
 
   compliance-officer:
     clearance: CONFIDENTIAL
     compartments: [kyc]
     verbs: [READ]
+    tool_sets: [compliance]
 
   payments-ops:
     clearance: RESTRICTED
     compartments: [financial]
     verbs: [READ, DESTRUCTIVE]
+    tool_sets: [payments]
 
   retail-customer:
     clearance: INTERNAL

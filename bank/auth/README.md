@@ -14,13 +14,15 @@ Two kinds of file live here, and they are not interchangeable.
 ## Policy — reviewable, version-controlled, argued about in a pull request
 
 - **`claims.yaml`** — the STS's claims policy. `roles:` bundles a clearance,
-  a set of compartments, verbs and (optionally) a tool set into a name;
-  `segments:` says which roles a segment of customers or employees holds;
-  `agents:` says what an agent may bring to a delegation on its own account.
-  Compartments and the tool set named here are bank's own — `pii-contact`,
-  `pii-identity`, `financial`, `kyc`, `card-data`, and the `support` tool
-  set — exactly as `proto/bank/v1/taxonomy.proto` declares them, and no
-  others. That agreement is the whole point of the file sitting here.
+  a set of compartments, verbs and (optionally) one or more tool sets into a
+  name; `segments:` says which roles a segment of customers or employees
+  holds; `agents:` says what an agent may bring to a delegation on its own
+  account. The compartments and tool sets named here are bank's own —
+  `pii-contact`, `pii-identity`, `financial`, `kyc`, `card-data`, and the
+  `support`, `payments` and `compliance` tool sets — exactly as
+  `proto/bank/v1/taxonomy.proto` declares them, and no others. That agreement
+  is the whole point of the file sitting here, and `garm claims check` is what
+  keeps it true.
 
 - **`personas.yaml`** — the same policy shape, read by the dev identity
   provider (`garmdev idp --personas auth/personas.yaml`) instead of a real
