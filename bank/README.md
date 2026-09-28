@@ -105,16 +105,55 @@ supply either, so the full bank catalogue cannot be served by any garmd that
 exists today. An accounts-only artifact is what a support cluster would run —
 and building one here is what catalogue slicing would do if it existed.
 
+## What a payment grant actually binds
+
+Approval on `initiate_payment` has two axes and a digest, and all three are
+asserted in `bank/material_test.go` rather than only read off the proto,
+because they travel:
+
+- **`approver_compartments: ["financial"]`**, alongside
+  `approver_min_clearance: CLEARANCE_RESTRICTED`. Clearance alone would let any
+  sufficiently senior employee approve a payment; the compartment says whose
+  business it is. Both axes must hold — a `CLEARANCE_CONFIDENTIAL` approver
+  with no `financial` compartment must not be able to approve, and neither
+  should a `financial` approver who has not cleared `RESTRICTED`.
+- **`material_fields: ["amount_minor_units", "beneficiary_iban",
+  "currency_code"]`**. Without these a grant binds only `(tool, subject,
+  time)`, so a fifteen-minute approval would authorise *any* call to
+  `initiate_payment` in the window — approve ten pounds, send ten thousand.
+  With them, the grant carries a digest over these three values and garmd
+  refuses a request that does not match, so the human approved *this* payment
+  rather than *a* payment. `ListTools` returns these same names, agentd
+  extracts them from the request it is about to send, the STS digests them,
+  and garmd re-extracts and compares — a rename that misses one of those four
+  places is a grant that silently covers less than the approver believed.
+
+  Three, not six: `source_account_id` and `idempotency_key` are real and
+  material to the *system*, but an approver reading a sentence decides on the
+  amount, the destination and the currency — adding fields nobody reads makes
+  the digest stricter without making the approval better informed, and
+  `reference` is free text a caller chooses, which would let a tampering
+  caller invalidate its own grant.
+
 ## The refusal is asserted, in both directions
 
-`mise run check-bank` builds the catalogue and runs `garmd check` against it
-twice — once on a bare deployment, once on one with grants and a seven-year
-audit sink. **The bare run must fail.**
+`initiate_payment` declares two independent forms of supervision — `MODE_GRANT`
+and `LEVEL_AUDIT` with `fail_closed` and seven years of retention — and each is
+independently sufficient to refuse an unsupervised deployment. `mise run
+check-bank` builds the catalogue and runs `garmd check` against it three times,
+and the two failing runs are the point:
+
+1. a bare deployment (no grant verifier, no audit sink) — **must fail**.
+2. a deployment with a grant verifier but **no** audit sink — **must also
+   fail**, because a grant alone does not buy a durable record before the
+   money moves.
+3. a deployment with both, and an audit sink keeping at least the seven years
+   `initiate_payment` declares — **must mount**.
 
 Asserting only that the catalogue mounts somewhere would pass equally well if
-the refusal had quietly stopped working, and a refusal that has stopped
-working is a payment tool served with no grant and no audit trail. Same
-catalogue, opposite capability flags, opposite outcomes — that is what makes
+one of the two refusals had quietly stopped working, and a refusal that has
+stopped working is a payment tool served with no grant or no audit trail. Same
+catalogue, three capability combinations, three outcomes — that is what makes
 it a test rather than a formality.
 
 Two layers catch it, which is worth knowing when you are tempted to weaken an

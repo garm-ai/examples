@@ -150,7 +150,27 @@ service PaymentsService {
       approval: {
         mode: MODE_GRANT
         approver_min_clearance: CLEARANCE_RESTRICTED
+        // Need-to-know, not seniority, on the approving side too. A
+        // RESTRICTED engineer with no `financial` compartment has no business
+        // approving a payment, and without this line the predicate has one
+        // axis and clearance alone would decide.
+        approver_compartments: ["financial"]
         max_grant_age_seconds: 900
+        // What the human is actually approving.
+        //
+        // Without these the grant binds only (tool, subject, time): a
+        // fifteen-minute approval would authorise any payment in the window —
+        // approve ten pounds, send ten thousand. With them the grant carries a
+        // digest over these three values and garmd refuses a request that does
+        // not match, so the human approved THIS payment rather than a payment.
+        //
+        // Three, and not six. source_account_id and idempotency_key are real
+        // and material to the SYSTEM, but an approver reading a sentence
+        // decides on the amount, the destination and the currency; adding
+        // fields nobody reads makes the digest stricter without making the
+        // approval better informed. `reference` is free text a caller chooses
+        // and would let a tampering caller invalidate its own grant.
+        material_fields: ["amount_minor_units", "beneficiary_iban", "currency_code"]
       }
       audit: {
         level: LEVEL_AUDIT

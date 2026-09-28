@@ -410,10 +410,10 @@ const file_payments_v1_payments_proto_rawDesc = "" +
 	"\x18PAYMENT_STATUS_SUBMITTED\x10\x01\x12#\n" +
 	"\x1fPAYMENT_STATUS_PENDING_APPROVAL\x10\x02\x12\x1b\n" +
 	"\x17PAYMENT_STATUS_REJECTED\x10\x03\x12\x1a\n" +
-	"\x16PAYMENT_STATUS_SETTLED\x10\x042\x87\a\n" +
-	"\x0fPaymentsService\x12\xae\x04\n" +
-	"\x0fInitiatePayment\x12#.payments.v1.InitiatePaymentRequest\x1a$.payments.v1.InitiatePaymentResponse\"\xcf\x03\x92\xb5\x18\xca\x03\n" +
-	"\x10initiate_payment\x12\x12Initiate a payment\x1aiMove funds from a customer account to an external beneficiary. Irreversible once submitted to the scheme. \x03((2\tfinancialB\x06\b\x01\x10\x01\x18\x01J\a\b\x03\x10( \x84\aR\x83\x02\x12\x96\x01Never to retry a payment whose status is unknown. It is not idempotent, and a duplicate leaves the customer out of pocket. Check payment status first.\"hA grant-required response is not a failure. Do not retry; report that the payment awaits human approval.b\bpaymentsj\a\b\x02 \xfb\x13(\x01\x12\xc2\x02\n" +
+	"\x16PAYMENT_STATUS_SETTLED\x10\x042\xc7\a\n" +
+	"\x0fPaymentsService\x12\xee\x04\n" +
+	"\x0fInitiatePayment\x12#.payments.v1.InitiatePaymentRequest\x1a$.payments.v1.InitiatePaymentResponse\"\x8f\x04\x92\xb5\x18\x8a\x04\n" +
+	"\x10initiate_payment\x12\x12Initiate a payment\x1aiMove funds from a customer account to an external beneficiary. Irreversible once submitted to the scheme. \x03((2\tfinancialB\x06\b\x01\x10\x01\x18\x01JG\b\x03\x10(\x1a\tfinancial \x84\a2\x12amount_minor_units2\x10beneficiary_iban2\rcurrency_codeR\x83\x02\x12\x96\x01Never to retry a payment whose status is unknown. It is not idempotent, and a duplicate leaves the customer out of pocket. Check payment status first.\"hA grant-required response is not a failure. Do not retry; report that the payment awaits human approval.b\bpaymentsj\a\b\x02 \xfb\x13(\x01\x12\xc2\x02\n" +
 	"\x10GetPaymentStatus\x12$.payments.v1.GetPaymentStatusRequest\x1a%.payments.v1.GetPaymentStatusResponse\"\xe0\x01\x92\xb5\x18\xdb\x01\n" +
 	"\x12get_payment_status\x12\x12Get payment status\x1a5Where a payment has reached. Safe to call repeatedly. \x01(\x142\tfinancialB\x04\b\x01\x10\x03RR\n" +
 	"PBefore considering any retry, and whenever a customer asks where their money is.b\asupportb\bpaymentsB=Z;github.com/garm-ai/examples/bank/gen/payments/v1;paymentsv1b\x06proto3"
