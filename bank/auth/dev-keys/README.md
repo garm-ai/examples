@@ -29,9 +29,10 @@ protect nothing and would teach the wrong lesson about what does.
 - Do not point a staging or production STS at these keys, or at `config.yaml`
   next to them.
 - Do not copy them into another repository "to get started".
-- Do not add a real key here. Real key material is loaded from the environment
-  and never referenced by path — `sts.LoadConfig` refuses an inline key
-  outright, for exactly this reason.
+- Do not add a real key here. A real signing key is loaded from the
+  environment and never referenced by path — `sts.LoadConfig` refuses an
+  inline signing key outright, for exactly this reason. (A client's public
+  key, such as `agentd.pub.pem`, may be given by path: it is not a secret.)
 
 Regenerate with the commands in `garm-ai/sts`'s `deploy/keygen.sh`; they are
 ES256 on P-256 because the STS's algorithm allowlist accepts nothing else that
