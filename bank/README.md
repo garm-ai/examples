@@ -278,9 +278,9 @@ declare identical `min_clearance: CLEARANCE_INTERNAL`, empty `compartments`,
 and `sets: ["support"]` — so a caller who can start a run can read its result,
 and no one else can. That equality is asserted in
 `bank/agent_test.go`'s `TestInvokeAndGetRunAreVisibleToExactlyTheSameCallers`.
-Lint rule A5, which checks this on the CLI, ships in garm v0.14.1; this repo
-is pinned to v0.14.0, so today `mise run lint-bank` does not check it and the
-equality above is enforced only by `bank/agent_test.go`, until the pin moves.
+Lint rule A5 checks this on the CLI too (garm v0.14.1 and later; this repo
+pins v0.15.0), so `mise run lint-bank` and `bank/agent_test.go` enforce the
+same equality from two sides.
 
 `Invoke` declares only `effects: { idempotent: false }` and leaves
 `reversibility` and `external` unset. An irreversible external tool with no
@@ -295,11 +295,10 @@ account.
 `bank/prompts/support-assistant.md`, published verbatim — it is the product,
 not documentation of one. The proto's `prompts["system"]` entry names its
 path and pins a lowercase-hex SHA-256 of its bytes with no prefix. `garm
-catalogue publish` — a CLI subcommand still in progress upstream, not present
-in the pinned v0.14.0 `garm` this repo builds with — is designed to upload the
-file as `prompts/<sha256>.md`; once it ships, a runner fetching that object is
-meant to refuse to start the agent if the prompt it fetched does not hash to
-the value the catalogue declares. Nothing here uploads to object storage yet.
+catalogue publish` uploads the file as `prompts/<sha256>.md`, and a runner
+fetching that object refuses to start the agent if the prompt it fetched does
+not hash to the value the catalogue declares. Nothing in this repository runs
+the publish; CI builds the catalogue and checks it mounts.
 
 That pin only protects anything while it is the hash of the file actually in
 this tree, and editing a prompt is the change nobody thinks of as a code
@@ -330,6 +329,37 @@ generated `SupportAssistantHandler` interface in
 `bank/gen/bank/agents/v1/bankagentsv1_micro.pb.go` is deliberately
 unimplemented here: `agentd` serves this service dynamically from the
 catalogue, not from a Go binding compiled into the bank.
+
+## Owners and cards
+
+Every service in this tree names who is answerable for it, and the payment
+tool says how its approval should read. Both are annotations from garm
+v0.15.0, vendored beside the others by `mise run vendor-annotations`
+(`third_party/proto/garm/{card,meta}/v1/`), and neither is policy: `garmd`
+never reads them, its catalogue version check ignores both namespaces, and
+`mise run check-bank` still mounts all ten tools on the same v0.2.0 daemon.
+The agent runner reads them from the catalogue and puts them on every card
+the inbox renders.
+
+**`(garm.meta.v1.owner)` on every service.** `PaymentsService` is
+`payments-platform` (contact `#payments-oncall`), `AccountsService` is
+`retail-accounts`, `CardsService` is `card-services`, `ScreeningService` is
+`financial-crime`, and the `SupportAssistant` agent is `agent-platform`. A
+card for an open payment approval therefore names payments-platform, and the
+run card that proposed it names agent-platform: the tool is one team's and
+the run is another's. Lint rule O1 warns on any tool or agent service without
+an owner; this tree has none, so `mise run lint-bank` is silent.
+
+**`(garm.card.v1.task_card)` on `InitiatePayment`.** The one declared template
+in the bank. Its title is `Payment of {amount_minor_units} {currency_code}`
+and its body is three facts under human labels: `beneficiary_iban` as "To",
+`amount_minor_units` as "Amount (minor units)", `currency_code` as
+"Currency". Those three are exactly the tool's `material_fields`, and that is
+not a coincidence: the task stores the material fields and nothing else of
+the request, so lint rule C1 refuses a template that references anything
+else. `reference` is free text the caller chose, deliberately not material,
+and a template naming it fails `garm lint` with a message that says so. What
+the approver reads is what the grant digest binds.
 
 ## Running it
 

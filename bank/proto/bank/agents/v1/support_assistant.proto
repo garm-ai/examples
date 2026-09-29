@@ -19,6 +19,7 @@ package bank.agents.v1;
 import "buf/validate/validate.proto";
 import "bank/v1/taxonomy.proto";
 import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 
 option go_package = "github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1";
@@ -54,6 +55,14 @@ message SupportRequest {
 }
 
 service SupportAssistant {
+  // An agent is a service, so the same annotation names its owner. Every run
+  // card names this team; the approval card for a payment the run proposes
+  // names payments-platform, because the tool is theirs and the run is ours.
+  option (garm.meta.v1.owner) = {
+    team: "agent-platform"
+    contact: "#agent-platform"
+  };
+
   option (garm.agent.v1.agent) = {
     mode: MODE_REACT
 

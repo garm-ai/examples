@@ -23,6 +23,8 @@ package payments.v1;
 
 import "buf/validate/validate.proto";
 import "bank/v1/taxonomy.proto";
+import "garm/card/v1/card.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 
 option go_package = "github.com/garm-ai/examples/bank/gen/payments/v1;paymentsv1";
@@ -136,6 +138,15 @@ message GetPaymentStatusResponse {
 }
 
 service PaymentsService {
+  // Who is answerable for these tools. Every card built from this service
+  // names the team; the contact is where an approver goes when a payment
+  // sits in the queue. Metadata the daemon never reads (garm.meta.v1 is
+  // outside its version check), read by the runner from the catalogue.
+  option (garm.meta.v1.owner) = {
+    team: "payments-platform"
+    contact: "#payments-oncall"
+  };
+
   rpc InitiatePayment(InitiatePaymentRequest) returns (InitiatePaymentResponse) {
     option (garm.tool.v1.tool) = {
       name: "initiate_payment"
@@ -184,6 +195,26 @@ service PaymentsService {
         on_error: "A grant-required response is not a failure. Do not retry; "
                   "report that the payment awaits human approval."
       }
+    };
+
+    // What the approver reads. The open approval is rendered from this
+    // template instead of the derived one: a title that says what is being
+    // moved, and the three material fields under the labels a person uses.
+    //
+    // Only material fields, and lint rule C1 refuses any other: the task
+    // stores the material fields and nothing else of the request, so
+    // `reference` — free text the caller chose, deliberately NOT material —
+    // has no value a card could show. The template lists what the grant
+    // digest binds, which is also exactly what the approver is approving.
+    option (garm.card.v1.task_card) = {
+      title: "Payment of {amount_minor_units} {currency_code}"
+      body: [
+        { facts: { facts: [
+          { field: "beneficiary_iban"   label: "To" },
+          { field: "amount_minor_units" label: "Amount (minor units)" },
+          { field: "currency_code"      label: "Currency" }
+        ] } }
+      ]
     };
   }
 

@@ -2,8 +2,8 @@ buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-202608252041
 buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2/go.mod h1:TCt1lluMFnctISJXvkIQ4x3ABrPuUKCWKyjKdkJNBpw=
 github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op h1:1BOWQJweNyvZMlpAHXGLiZQn9S+QXGcz3xh94lC0w6E=
 github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op/go.mod h1:FQyySiasQQM8735Ddel3MRojmy4dA1IqCeyJ5jmPMbI=
-github.com/garm-ai/garm v0.14.0 h1:+B3/CXGyjK9huqEcFOirl4aw4Elgp+LBAusl5CUli7M=
-github.com/garm-ai/garm v0.14.0/go.mod h1:Pjlel8ZcwbsHOSCGELygHOXzr37jXhRDcvd+EyoKklI=
+github.com/garm-ai/garm v0.15.0 h1:Pl1dXHqTp+M3tF7tvZTLVROhVUzDj2F1ym4/7+T6DYY=
+github.com/garm-ai/garm v0.15.0/go.mod h1:6XZkE7k/Z4N5G/CHYYj93pvidwkhMU11bFz/Z+Cnyxg=
 github.com/garm-ai/tool-go v0.5.0 h1:ad4IWKi+xjO0Kws6oOLjcsAAWkPjLuM/1QZiX5dzgM0=
 github.com/garm-ai/tool-go v0.5.0/go.mod h1:F1ax+TgDAV8sbrc1ZZyDzjt7Q9gk5hh90bhWwYPVh3Q=
 github.com/go-jose/go-jose/v4 v4.1.5 h1:RjgjO2LOtWOJKUC5wpwY9LR3B3vwVAz6JS2YHfYU6eA=

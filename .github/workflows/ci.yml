@@ -41,7 +41,7 @@ jobs:
       # In the `ci` job rather than its own now that the CLI it needs is
       # tagged: it had a job of its own only while `garm claims check` existed
       # in no release, when its failure would have turned every unrelated pull
-      # request red. It now depends on the same pinned `cli` task (v0.14.2)
+      # request red. It now depends on the same pinned `cli` task (v0.15.0)
       # that the test step installs.
       - name: auth/claims.yaml and auth/personas.yaml against a freshly built bank catalogue
         run: mise run claims-check-bank

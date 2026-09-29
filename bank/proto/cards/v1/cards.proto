@@ -16,6 +16,7 @@ package cards.v1;
 
 import "buf/validate/validate.proto";
 import "bank/v1/taxonomy.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 
 option go_package = "github.com/garm-ai/examples/bank/gen/cards/v1;cardsv1";
@@ -100,6 +101,12 @@ message FreezeCardResponse {
 }
 
 service CardsService {
+  // Who is answerable for these tools; shown on every card built from them.
+  option (garm.meta.v1.owner) = {
+    team: "card-services"
+    contact: "#card-services"
+  };
+
   rpc ListCards(ListCardsRequest) returns (ListCardsResponse) {
     option (garm.tool.v1.tool) = {
       name: "list_cards"

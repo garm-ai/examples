@@ -25,6 +25,7 @@ import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	_ "github.com/garm-ai/examples/bank/gen/bank/v1"
 	v1 "github.com/garm-ai/garm/contracts/garm/agent/v1"
+	_ "github.com/garm-ai/garm/contracts/garm/meta/v1"
 	_ "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -108,27 +109,27 @@ var File_bank_agents_v1_support_assistant_proto protoreflect.FileDescriptor
 
 const file_bank_agents_v1_support_assistant_proto_rawDesc = "" +
 	"\n" +
-	"&bank/agents/v1/support_assistant.proto\x12\x0ebank.agents.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x19garm/agent/v1/agent.proto\x1a\x17garm/tool/v1/tool.proto\"\x87\x01\n" +
+	"&bank/agents/v1/support_assistant.proto\x12\x0ebank.agents.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x19garm/agent/v1/agent.proto\x1a\x17garm/meta/v1/meta.proto\x1a\x17garm/tool/v1/tool.proto\"\x87\x01\n" +
 	"\x0eSupportRequest\x12@\n" +
 	"\vcustomer_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^cust_[a-z0-9]{6,32}$R\n" +
 	"customerId\x12'\n" +
 	"\arequest\x18\x02 \x01(\tB\r\xbaH\n" +
 	"\xc8\x01\x01r\x05\x10\x01\x18\xd0\x0fR\arequest:\n" +
 	"\x9a\xb5\x18\x06\b\n" +
-	"\"\x02\x12\x002\xf6\n" +
-	"\n" +
+	"\"\x02\x12\x002\x9b\v\n" +
 	"\x10SupportAssistant\x12\xe1\x05\n" +
 	"\x06Invoke\x12\x1e.bank.agents.v1.SupportRequest\x1a\x15.garm.agent.v1.RunRef\"\x9f\x05\x92\xb5\x18\x9a\x05\n" +
 	"\x11support_assistant\x12\x19Ask the support assistant\x1a\xe5\x01Start a support-assistant run for one customer. Returns a run reference immediately; the answer is collected with support_assistant_run. The run acts for the caller and can reach only what both the caller and the agent may reach. \x02(\x14B\x00R\xf2\x02\n" +
 	"_A member of staff has a customer request in words and wants it worked through the bank's tools.\x12\x94\x01Never to perform an action you could perform directly. A run is slower, costs tokens, and puts a model between you and a tool you can already reach.\"xA refusal here is about YOUR authority to start a run, not about the customer or the request. Do not rephrase and retry.b\asupport\x12\xf5\x02\n" +
 	"\x06GetRun\x12\x15.garm.agent.v1.RunRef\x1a\x18.garm.agent.v1.RunStatus\"\xb9\x02\x92\xb5\x18\xb4\x02\n" +
 	"\x15support_assistant_run\x12\x1cRead a support-assistant run\x1ajThe state and, once finished, the result of one run. Answers not-found for a run the caller did not start. \x01(\x14B\x04\b\x01\x10\x03R~\n" +
-	"$After Invoke, to collect the answer.\x12VDo not poll faster than once a second. Every poll is a governed call and a ledger row.b\asupport\x1a\x85\x02\xaa\xbb\x18\x80\x02\b\x01\x12\x1a\b(\x12\tfinancial\x12\vpii-contact\x1a\x06\n" +
+	"$After Invoke, to collect the answer.\x12VDo not poll faster than once a second. Every poll is a governed call and a ledger row.b\asupport\x1a\xaa\x02\xaa\xbb\x18\x80\x02\b\x01\x12\x1a\b(\x12\tfinancial\x12\vpii-contact\x1a\x06\n" +
 	"\x04fast\"\r\b\f\x10\xc0\x9a\f\x18\x1e\"\x03\b\xd8\x04*j\n" +
 	"\x06system\x12`\n" +
 	"\x1cprompts/support-assistant.md\x12@0654986860461c19d2cb12f84af3915f82efc846c79659962696de224abbd5a42\x1a\n" +
 	"\x18accounts.v1.get_customer2A\n" +
-	"\x1cpayments.v1.initiate_payment\x12!args.amount_minor_units <= 500000BBZ@github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1b\x06proto3"
+	"\x1cpayments.v1.initiate_payment\x12!args.amount_minor_units <= 500000\xea\xc7\x18!\n" +
+	"\x0eagent-platform\x12\x0f#agent-platformBBZ@github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1b\x06proto3"
 
 var (
 	file_bank_agents_v1_support_assistant_proto_rawDescOnce sync.Once

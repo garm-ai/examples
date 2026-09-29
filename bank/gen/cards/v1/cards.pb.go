@@ -22,6 +22,7 @@ package cardsv1
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	_ "github.com/garm-ai/examples/bank/gen/bank/v1"
+	_ "github.com/garm-ai/garm/contracts/garm/meta/v1"
 	_ "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -360,7 +361,7 @@ var File_cards_v1_cards_proto protoreflect.FileDescriptor
 
 const file_cards_v1_cards_proto_rawDesc = "" +
 	"\n" +
-	"\x14cards/v1/cards.proto\x12\bcards.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x17garm/tool/v1/tool.proto\"`\n" +
+	"\x14cards/v1/cards.proto\x12\bcards.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x17garm/meta/v1/meta.proto\x1a\x17garm/tool/v1/tool.proto\"`\n" +
 	"\x10ListCardsRequest\x12@\n" +
 	"\vcustomer_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^cust_[a-z0-9]{6,32}$R\n" +
 	"customerId:\n" +
@@ -401,7 +402,7 @@ const file_cards_v1_cards_proto_rawDesc = "" +
 	"\x16CARD_STATE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11CARD_STATE_ACTIVE\x10\x01\x12\x15\n" +
 	"\x11CARD_STATE_FROZEN\x10\x02\x12\x18\n" +
-	"\x14CARD_STATE_CANCELLED\x10\x032\xdb\v\n" +
+	"\x14CARD_STATE_CANCELLED\x10\x032\x80\f\n" +
 	"\fCardsService\x12\xb3\x03\n" +
 	"\tListCards\x12\x1a.cards.v1.ListCardsRequest\x1a\x1b.cards.v1.ListCardsResponse\"\xec\x02\x92\xb5\x18\xe7\x02\n" +
 	"\n" +
@@ -413,7 +414,8 @@ const file_cards_v1_cards_proto_rawDesc = "" +
 	"\n" +
 	"FreezeCard\x12\x1b.cards.v1.FreezeCardRequest\x1a\x1c.cards.v1.FreezeCardResponse\"\xc6\x04\x92\xb5\x18\xc1\x04\n" +
 	"\vfreeze_card\x12\rFreeze a card\x1aMImmediately block further authorisations on a card. Reversible by unfreezing. \x02(\x1e2\tcard-dataB\x13\b\x01\x10\x02\"\runfreeze_cardR\xa6\x03\n" +
-	"\x9e\x01The customer reports the card lost, stolen, or used without their knowledge. Freeze first and investigate after — the cost of being wrong is one phone call.\x12\x9c\x01Not for a disputed transaction on a card the customer still holds. That is a dispute, not a compromise, and freezing leaves them unable to pay for anything.\"dAlready frozen is success, not failure. Do not retry and do not tell the customer the freeze failed.b\asupportB7Z5github.com/garm-ai/examples/bank/gen/cards/v1;cardsv1b\x06proto3"
+	"\x9e\x01The customer reports the card lost, stolen, or used without their knowledge. Freeze first and investigate after — the cost of being wrong is one phone call.\x12\x9c\x01Not for a disputed transaction on a card the customer still holds. That is a dispute, not a compromise, and freezing leaves them unable to pay for anything.\"dAlready frozen is success, not failure. Do not retry and do not tell the customer the freeze failed.b\asupport\x1a#\xea\xc7\x18\x1f\n" +
+	"\rcard-services\x12\x0e#card-servicesB7Z5github.com/garm-ai/examples/bank/gen/cards/v1;cardsv1b\x06proto3"
 
 var (
 	file_cards_v1_cards_proto_rawDescOnce sync.Once
