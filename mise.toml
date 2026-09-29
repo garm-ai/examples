@@ -177,7 +177,7 @@ dir = "bank"
 # one are the same word, so the list is the agent names and nothing else.
 run = """
 set -e
-for AGENT in support-assistant card-guardian concierge compliance-screen; do
+for AGENT in support-assistant card-guardian concierge compliance-screen research-assistant; do
   SUM=$(shasum -a 256 "prompts/$AGENT.md" | cut -d' ' -f1)
   F="proto/bank/agents/v1/$(echo "$AGENT" | tr - _).proto"
   sed -i.bak -E "s/(sha256: \\")[0-9a-f]{64}(\\")/\\1${SUM}\\2/" "$F"

@@ -1,6 +1,17 @@
 version: v2
 inputs:
   - directory: proto
+    # The adopted packages from github.com/garm-ai/tools (web, and the
+    # taxonomy it names) are copied here so `garm lint` and `garm catalogue
+    # build` see their declarations — the catalogue is built from one proto
+    # tree. Their Go is NOT generated here: `go get` already brought the
+    # generated messages and the service binding, under the go_package these
+    # files name, and a second copy of the same descriptors would register
+    # the same proto file twice and panic at init. Same reason third_party/
+    # is not an input.
+    exclude_paths:
+      - proto/tools
+      - proto/web
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: gen

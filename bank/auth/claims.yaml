@@ -20,10 +20,21 @@ roles:
     # the `support` set too, but it is compartmented `card-data` and this role
     # does not hold it. A set narrows; it never grants. card-support below is
     # the role that holds card-data.
+    #
+    # `internet` and `research` are the adopted web.v1.fetch_page tool, from
+    # github.com/garm-ai/tools (proto/web, proto/tools). A first-line desk
+    # may read a public page — the published fee schedule, a regulator's
+    # page — and this is the role the research-assistant agent folds
+    # against. Every other agent holding this role (the assistant, the
+    # guardian) gains the same names in its ceiling and reaches nothing new:
+    # neither lists fetch_page, and the runner shows a model the allowlist,
+    # not the claim. Which hosts a fetch may reach is not here at all — the
+    # fetch service's allowlist decides per deployment and the agent's guard
+    # per manifest.
     clearance: INTERNAL
-    compartments: [pii-contact, financial]
+    compartments: [pii-contact, financial, internet]
     verbs: [READ]
-    tool_sets: [support]
+    tool_sets: [support, research]
 
   card-support:
     # freeze_card / unfreeze_card. WRITE, not DESTRUCTIVE — cards.proto's
@@ -171,3 +182,11 @@ agents:
   # the pii-contact get_customer needs, and nothing else. Exactly
   # compliance_screen.proto's principal.
   compliance-screen: { roles: [compliance-officer, compliance-contact] }
+
+  # The research assistant: fetch_page and get_customer. One role, the
+  # first-line one, now that it carries `internet` and `research`. The union
+  # carries `financial` too, which research_assistant.proto's principal does
+  # not request: nothing reachable changes, because the allowlist names no
+  # financial tool. What the agent may READ from the web is decided by the
+  # fetch service's allowlist and the manifest's guard, never by this file.
+  research-assistant: { roles: [support-desk] }

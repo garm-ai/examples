@@ -40,6 +40,16 @@ type ConciergeHandler interface {
 	GetRun(context.Context, *v1.RunRef) (*v1.RunStatus, error)
 }
 
+// ResearchAssistantHandler implements every tool ResearchAssistant declares, in plain
+// proto signatures with no transport wrapper. There is no
+// Unimplemented embed: a tool added to the .proto and not implemented
+// here fails to COMPILE, rather than mounting and answering
+// Unimplemented to a real caller at runtime.
+type ResearchAssistantHandler interface {
+	Invoke(context.Context, *ResearchRequest) (*v1.RunRef, error)
+	GetRun(context.Context, *v1.RunRef) (*v1.RunStatus, error)
+}
+
 // SupportAssistantHandler implements every tool SupportAssistant declares, in plain
 // proto signatures with no transport wrapper. There is no
 // Unimplemented embed: a tool added to the .proto and not implemented
@@ -227,6 +237,65 @@ func ServeConcierge(r toolbind.Registrar, h ConciergeHandler) error {
 	return nil
 }
 
+// ServeResearchAssistant registers one micro endpoint per tool ResearchAssistant declares.
+func ServeResearchAssistant(r toolbind.Registrar, h ResearchAssistantHandler) error {
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.research_assistant",
+			Subject:         "bank.agents.v1.ResearchAssistant.Invoke",
+			Method:          "Invoke",
+			Service:         "bank.agents.v1.ResearchAssistant",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(ResearchRequest) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*ResearchRequest)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.ResearchAssistant.Invoke: request is %T, want %T", req, (*ResearchRequest)(nil))
+			}
+			res, err := h.Invoke(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.ResearchAssistant.Invoke: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.research_assistant_run",
+			Subject:         "bank.agents.v1.ResearchAssistant.GetRun",
+			Method:          "GetRun",
+			Service:         "bank.agents.v1.ResearchAssistant",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.RunRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.RunRef)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.ResearchAssistant.GetRun: request is %T, want %T", req, (*v1.RunRef)(nil))
+			}
+			res, err := h.GetRun(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.ResearchAssistant.GetRun: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ServeSupportAssistant registers one micro endpoint per tool SupportAssistant declares.
 func ServeSupportAssistant(r toolbind.Registrar, h SupportAssistantHandler) error {
 	if err := r.Endpoint(
@@ -300,7 +369,7 @@ const ContractVersion = "v0.1.0"
 // response returns and is garm's business, not the wire's. A hash that
 // moved when a read: clearance changed would mark every service
 // incompatible over a change that cannot break unmarshalling.
-const DescriptorHash = "2d651d937aa09f98588dae3351a46e60dc62f8e8686f7891190e4ee6e554c855"
+const DescriptorHash = "a64580a43daba0d95380fc3c6da7d786a8e4c2659568f19227ea0e4a78639929"
 
 var CardGuardianTools = []toolbind.ToolRef{
 	{
@@ -354,6 +423,25 @@ var ConciergeTools = []toolbind.ToolRef{
 		Subject:         "bank.agents.v1.Concierge.GetRun",
 		Method:          "GetRun",
 		Service:         "bank.agents.v1.Concierge",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+}
+
+var ResearchAssistantTools = []toolbind.ToolRef{
+	{
+		FQN:             "bank.agents.v1.research_assistant",
+		Subject:         "bank.agents.v1.ResearchAssistant.Invoke",
+		Method:          "Invoke",
+		Service:         "bank.agents.v1.ResearchAssistant",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+	{
+		FQN:             "bank.agents.v1.research_assistant_run",
+		Subject:         "bank.agents.v1.ResearchAssistant.GetRun",
+		Method:          "GetRun",
+		Service:         "bank.agents.v1.ResearchAssistant",
 		ContractVersion: ContractVersion,
 		DescriptorHash:  DescriptorHash,
 	},

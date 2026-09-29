@@ -27,10 +27,14 @@ tenant: bank
 # role expands to.
 roles:
   support-desk:
+    # `internet` and `research`: the adopted web.v1.fetch_page tool, for the
+    # research-assistant agent. Same bundle as claims.yaml's support-desk,
+    # and it has to stay that way: this file is the dev-mode stand-in for
+    # what claims.yaml computes from a real STS exchange.
     clearance: INTERNAL
-    compartments: [pii-contact, financial]
+    compartments: [pii-contact, financial, internet]
     verbs: [READ]
-    tool_sets: [support]
+    tool_sets: [support, research]
 
   card-support:
     clearance: CONFIDENTIAL
@@ -145,3 +149,8 @@ agents:
     subject: "agent:compliance-screen"
     roles: [compliance-officer, compliance-contact]
     may_act_for: [priya]
+
+  research-assistant:
+    subject: "agent:research-assistant"
+    roles: [support-desk]
+    may_act_for: [jdoe]
