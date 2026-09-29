@@ -162,6 +162,17 @@ because they travel:
   `reference` is free text a caller chooses, which would let a tampering
   caller invalidate its own grant.
 
+- **`idempotency_key` is the runner's, never the model's.** Its field policy
+  carries `source: SOURCE_RUNNER` (garm v0.16.0). agentd strips it from the
+  schema the model sees and fills it with `<run_id>-<dispatch seq>` — the
+  same key on the granted retry of a parked payment, a different one for a
+  second payment in the same run — so a model that retries after a timeout
+  it never saw the answer to cannot pay twice by inventing a fresh key. Lint
+  L34 holds the mark to that one rule. garmd's half — projecting the field
+  out of `ListTools` and refusing a caller that sets it without a runner
+  identity — is garmd v0.2.2; the v0.2.0 daemon this tree pins ignores the
+  mark, which is why `mise run check-bank` still mounts on it.
+
 ## The refusal is asserted, in both directions
 
 `initiate_payment` declares two independent forms of supervision — `MODE_GRANT`
@@ -546,7 +557,7 @@ and `sets: ["support"]` — so a caller who can start a run can read its result,
 and no one else can. That equality is asserted in
 `bank/agent_test.go`'s `TestInvokeAndGetRunAreVisibleToExactlyTheSameCallers`.
 Lint rule A5 checks this on the CLI too (garm v0.14.1 and later; this repo
-pins v0.15.0), so `mise run lint-bank` and `bank/agent_test.go` enforce the
+pins v0.16.0), so `mise run lint-bank` and `bank/agent_test.go` enforce the
 same equality from two sides.
 
 `Invoke` declares only `effects: { idempotent: false }` and leaves
@@ -711,9 +722,11 @@ is the answer working.
 Every service in this tree names who is answerable for it, and the payment
 tool says how its approval should read. Both are annotations from garm
 v0.15.0, vendored beside the others by `mise run vendor-annotations`
-(`third_party/proto/garm/{card,meta}/v1/`), and neither is policy: `garmd`
-never reads them, its catalogue version check ignores both namespaces, and
-`mise run check-bank` still mounts all nineteen tools on the same v0.2.0 daemon.
+(`third_party/proto/garm/{card,meta}/v1/`; the pin is now v0.16.0, which
+adds `FieldPolicy.source` to `tool.proto` without moving the schema
+version), and neither is policy: `garmd` never reads them, its catalogue
+version check ignores both namespaces, and `mise run check-bank` still
+mounts all nineteen tools on the same v0.2.0 daemon.
 The agent runner reads them from the catalogue and puts them on every card
 the inbox renders.
 

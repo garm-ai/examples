@@ -17,7 +17,7 @@ dir = "bank"
 # chmod is on the copy, never on the cache.
 run = """
 set -e
-VERSION=v0.15.0
+VERSION=v0.16.0
 go mod download github.com/garm-ai/garm@$VERSION
 SRC="$(go env GOMODCACHE)/github.com/garm-ai/garm@$VERSION/proto/garm"
 for f in tool/v1/tool.proto agent/v1/agent.proto card/v1/card.proto meta/v1/meta.proto; do
@@ -33,7 +33,7 @@ description = "Install the tool generator at the pinned version"
 # Pinned, not @latest: the generated binding carries a descriptor hash, and a
 # generator that moved under you changes committed output for no reason
 # anyone asked for.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.15.0"
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.16.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -60,8 +60,9 @@ description = "Install the garm CLI at the pinned version"
 # install that existed while those were untagged is gone. v0.15.0 adds the
 # garm.card.v1 and garm.meta.v1 annotations and lint rules C1 and O1, which
 # the bank now relies on (owners on every service, a task_card on the
-# payment tool).
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.15.0"
+# payment tool). v0.16.0 adds FieldPolicy.source and lint L34, which mark
+# initiate_payment's idempotency_key as the runner's.
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.16.0"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"

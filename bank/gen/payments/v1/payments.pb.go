@@ -122,14 +122,23 @@ type InitiatePaymentRequest struct {
 	AmountMinorUnits *int64  `protobuf:"varint,3,opt,name=amount_minor_units,json=amountMinorUnits,proto3,oneof" json:"amount_minor_units,omitempty"`
 	CurrencyCode     string  `protobuf:"bytes,4,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
 	Reference        *string `protobuf:"bytes,5,opt,name=reference,proto3,oneof" json:"reference,omitempty"`
-	// The answer to "external and not idempotent": the caller names the attempt,
-	// and a repeat of the same key returns the original payment instead of making
-	// a second one.
+	// The answer to "external and not idempotent": the attempt is named, and a
+	// repeat of the same key returns the original payment instead of making a
+	// second one.
 	//
 	// It is required rather than optional because an agent that retries is the
 	// expected case, not the exceptional one — a timeout it never saw the answer
 	// to looks exactly like a call it should make again. Leaving this to the
 	// caller's discretion means it is absent precisely when it matters.
+	//
+	// And it is the RUNNER's, never the model's: `source: SOURCE_RUNNER`. A
+	// model that retries picks a new key and pays twice, or reuses one for two
+	// payments and pays once; the key must come from the thing that knows what
+	// a retry is. agentd fills it with <run_id>-<dispatch seq> and strips it
+	// from the schema the model sees; garmd (from v0.2.2) projects it out of
+	// ListTools for every caller and refuses a request that sets it without a
+	// runner identity. The read and on_deny repeat the message default because
+	// an explicit field policy replaces the default rather than layering on it.
 	IdempotencyKey string `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -367,7 +376,7 @@ var File_payments_v1_payments_proto protoreflect.FileDescriptor
 
 const file_payments_v1_payments_proto_rawDesc = "" +
 	"\n" +
-	"\x1apayments/v1/payments.proto\x12\vpayments.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x17garm/card/v1/card.proto\x1a\x17garm/meta/v1/meta.proto\x1a\x17garm/tool/v1/tool.proto\"\xae\x05\n" +
+	"\x1apayments/v1/payments.proto\x12\vpayments.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x17garm/card/v1/card.proto\x1a\x17garm/meta/v1/meta.proto\x1a\x17garm/tool/v1/tool.proto\"\xba\x05\n" +
 	"\x16InitiatePaymentRequest\x12K\n" +
 	"\x11source_account_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^acct_[a-z0-9]{6,32}$R\x0fsourceAccountId\x12U\n" +
 	"\x10beneficiary_iban\x18\x02 \x01(\tB*\xbaH'\xc8\x01\x01r\"2 ^[A-Z]{2}[0-9]{2}[A-Z0-9]{1,30}$R\x0fbeneficiaryIban\x12M\n" +
@@ -376,8 +385,9 @@ const file_payments_v1_payments_proto_rawDesc = "" +
 	"\x00H\x00R\x10amountMinorUnits\x88\x01\x01\x129\n" +
 	"\rcurrency_code\x18\x04 \x01(\tB\x14\xbaH\x11\xc8\x01\x01r\f2\n" +
 	"^[A-Z]{3}$R\fcurrencyCode\x12+\n" +
-	"\treference\x18\x05 \x01(\tB\b\xbaH\x05r\x03\x18\x8c\x01H\x01R\treference\x88\x01\x01\x12I\n" +
-	"\x0fidempotency_key\x18\x06 \x01(\tB \xbaH\x1d\xc8\x01\x01r\x182\x16^[A-Za-z0-9_-]{16,64}$R\x0eidempotencyKey:\xc8\x01\xbaH\xba\x01\x1a\xb7\x01\n" +
+	"\treference\x18\x05 \x01(\tB\b\xbaH\x05r\x03\x18\x8c\x01H\x01R\treference\x88\x01\x01\x12U\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tB,\xbaH\x1d\xc8\x01\x01r\x182\x16^[A-Za-z0-9_-]{16,64}$\x8a\xb5\x18\b\b\n" +
+	"\"\x02\x12\x000\x01R\x0eidempotencyKey:\xc8\x01\xbaH\xba\x01\x1a\xb7\x01\n" +
 	"'initiate_payment.jpy_has_no_minor_units\x12IJPY has no minor unit: amount_minor_units must be a whole multiple of 100\x1aAthis.currency_code != 'JPY' || this.amount_minor_units % 100 == 0\x9a\xb5\x18\x06\b\n" +
 	"\"\x02\x12\x00B\x15\n" +
 	"\x13_amount_minor_unitsB\f\n" +

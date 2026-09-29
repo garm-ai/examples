@@ -74,15 +74,26 @@ message InitiatePaymentRequest {
 
   optional string reference = 5 [(buf.validate.field).string.max_len = 140];
 
-  // The answer to "external and not idempotent": the caller names the attempt,
-  // and a repeat of the same key returns the original payment instead of making
-  // a second one.
+  // The answer to "external and not idempotent": the attempt is named, and a
+  // repeat of the same key returns the original payment instead of making a
+  // second one.
   //
   // It is required rather than optional because an agent that retries is the
   // expected case, not the exceptional one — a timeout it never saw the answer
   // to looks exactly like a call it should make again. Leaving this to the
   // caller's discretion means it is absent precisely when it matters.
-  string idempotency_key = 6 [(buf.validate.field).required = true,
+  //
+  // And it is the RUNNER's, never the model's: `source: SOURCE_RUNNER`. A
+  // model that retries picks a new key and pays twice, or reuses one for two
+  // payments and pays once; the key must come from the thing that knows what
+  // a retry is. agentd fills it with <run_id>-<dispatch seq> and strips it
+  // from the schema the model sees; garmd (from v0.2.2) projects it out of
+  // ListTools for every caller and refuses a request that sets it without a
+  // runner identity. The read and on_deny repeat the message default because
+  // an explicit field policy replaces the default rather than layering on it.
+  string idempotency_key = 6 [(garm.tool.v1.field_policy) = {
+                                read: CLEARANCE_PUBLIC on_deny: { mask: {} } source: SOURCE_RUNNER },
+                              (buf.validate.field).required = true,
                               (buf.validate.field).string.pattern = "^[A-Za-z0-9_-]{16,64}$"];
 
   // The rule no single field can express, and the reason CEL earns its weight.
