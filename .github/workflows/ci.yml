@@ -19,26 +19,35 @@ jobs:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v2
         with: { install: true, cache: true }
+      # The same list as `mise run ci`, one step each so a red build names
+      # the gate that failed rather than the task that wraps them all.
       - run: mise run lint
+      - run: mise run lint-bank
       - run: mise run build
       - run: mise run test
       # Generated code is committed, so it can go stale. This is what stops
       # a .proto change from shipping without the binding that matches it.
       - run: mise run gen-check
+      # A prompt is committed too, and its sha256 is pinned in the agent's
+      # annotation. An edited prompt with a stale pin is a runner that refuses
+      # the agent at deploy time; this makes it a red build instead.
+      - run: mise run prompt-sha-check
       # Every compartment and tool set the bank's claims policies name must be
       # one the catalogue actually declares — a name it does not is dropped
       # silently at verify time, never rejected. The task builds the catalogue
       # itself rather than trusting bank.binpb on disk, which is gitignored
       # and generated, so a stale copy can never pass this.
       #
-      # In this job rather than its own, unlike when this comment was last
-      # true: claims-check-bank ran on a separately installed garm CLI at an
-      # untagged v0.12.0 so a missing release did not turn lint/build/test
-      # red. It now depends on the same pinned `cli` task (v0.14.0) that the
-      # test step installs, a tagged release, so there is nothing left to
-      # isolate it from.
+      # In the `ci` job rather than its own now that the CLI it needs is
+      # tagged: it had a job of its own only while `garm claims check` existed
+      # in no release, when its failure would have turned every unrelated pull
+      # request red. It now depends on the same pinned `cli` task (v0.14.2)
+      # that the test step installs.
       - name: auth/claims.yaml and auth/personas.yaml against a freshly built bank catalogue
         run: mise run claims-check-bank
+      # Both directions of the mount refusal, and the two failing runs are the
+      # point. See mise.toml.
+      - run: mise run check-bank
 
   # What does merging this change about who may see what?
   #
