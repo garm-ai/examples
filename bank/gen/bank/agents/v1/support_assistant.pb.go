@@ -126,7 +126,7 @@ const file_bank_agents_v1_support_assistant_proto_rawDesc = "" +
 	"$After Invoke, to collect the answer.\x12VDo not poll faster than once a second. Every poll is a governed call and a ledger row.b\asupport\x1a\xaa\x02\xaa\xbb\x18\x80\x02\b\x01\x12\x1a\b(\x12\tfinancial\x12\vpii-contact\x1a\x06\n" +
 	"\x04fast\"\r\b\f\x10\xc0\x9a\f\x18\x1e\"\x03\b\xd8\x04*j\n" +
 	"\x06system\x12`\n" +
-	"\x1cprompts/support-assistant.md\x12@0654986860461c19d2cb12f84af3915f82efc846c79659962696de224abbd5a42\x1a\n" +
+	"\x1cprompts/support-assistant.md\x12@19eec3bbfc54daf364af827415d4b3e45afc8b332cae0df8782f246679ee54b52\x1a\n" +
 	"\x18accounts.v1.get_customer2A\n" +
 	"\x1cpayments.v1.initiate_payment\x12!args.amount_minor_units <= 500000\xea\xc7\x18!\n" +
 	"\x0eagent-platform\x12\x0f#agent-platformBBZ@github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1b\x06proto3"

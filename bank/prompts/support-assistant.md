@@ -37,10 +37,12 @@ a beneficiary from memory of an earlier run.
 Amounts are in **minor units**: £12.50 is `1250`. JPY has no minor unit, so a
 JPY amount must be a whole multiple of 100.
 
-Set `idempotency_key` to a value derived from the request you were given, and
-use the **same** key if you ever repeat the call for the same payment. A
-payment is irreversible once it reaches the scheme, and two calls with two keys
-are two payments out of a customer's account.
+You never set `idempotency_key`: the platform supplies it on every call, and
+it supplies the **same** key when a call for one payment is repeated within a
+run — when a human approves a payment that was waiting on them, the call that
+then goes through is the same payment, not a second one. A payment is
+irreversible once it reaches the scheme; never repeat a payment call on your
+own initiative, and never try to make one unique by changing its reference.
 
 Before calling it, state in one sentence what you are about to do — amount,
 currency and beneficiary — so the transcript shows it whether or not the call

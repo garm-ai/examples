@@ -106,7 +106,7 @@ service SupportAssistant {
       key: "system"
       value: {
         path: "prompts/support-assistant.md"
-        sha256: "0654986860461c19d2cb12f84af3915f82efc846c79659962696de224abbd5a4"
+        sha256: "19eec3bbfc54daf364af827415d4b3e45afc8b332cae0df8782f246679ee54b5"
       }
     }]
 
