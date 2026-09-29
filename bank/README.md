@@ -10,7 +10,7 @@ three hundred engineers?**
 ```
 proto/
   bank/v1/          the taxonomy — which compartments and tool sets exist at all
-  bank/agents/v1/   the support assistant — the bank's first agent
+  bank/agents/v1/   the agents — the support assistant and three more
   accounts/v1/      balances and customer details
   cards/v1/         card state, in PCI scope
   payments/v1/      moving money
@@ -583,15 +583,63 @@ change — so two things keep it honest:
 `GetRun` as two ordinary governed tools and never reads the
 `(garm.agent.v1.agent)` annotation at all — it is agent-blind by design, so a
 change to what an agent runs as can never affect what garmd itself decides to
-serve. `mise run check-bank` builds the full ten-tool catalogue (the eight
-tools the bank already had, plus `support_assistant` and
-`support_assistant_run`) and asserts only that adding the agent does not make
-the bank unmountable. It says nothing about whether an agent runner exists to
+serve. `mise run check-bank` builds the full sixteen-tool catalogue (the eight
+tools the bank already had, plus `Invoke` and `GetRun` for each of the four
+agents) and asserts only that adding the agents does not make the bank
+unmountable. It says nothing about whether an agent runner exists to
 serve `SupportAssistant` — nothing in this repository implements it, and the
 generated `SupportAssistantHandler` interface in
 `bank/gen/bank/agents/v1/bankagentsv1_micro.pb.go` is deliberately
 unimplemented here: `agentd` serves this service dynamically from the
 catalogue, not from a Go binding compiled into the bank.
+
+## Three more agents
+
+Three agents beside the assistant, each reached by one persona and no
+other, so a demo can show the same runner confining three different shapes
+of authority. Each is a proto file under `proto/bank/agents/v1/`, a prompt
+under `prompts/` pinned by hash, an `agents:` entry in `auth/claims.yaml` and
+`auth/personas.yaml`, and a `can_invoke` plus a `can_run` tuple in
+`auth/tuples.yaml`. `mise run prompt-sha` rewrites every agent's hash.
+
+**`card-guardian`** (`CardGuardian`, owner `card-services`). jdoe may invoke
+it. It calls `get_customer`, `list_cards` and `freeze_card`, the last one
+guarded by `args.reason.size() >= 10` so a freeze always lands in the ledger
+with a reason a person can act on. It **cannot unfreeze**: `unfreeze_card`
+is not in its allowlist, so a card it froze is unfrozen by a person. Its
+principal is `CONFIDENTIAL` with `card-data` and `pii-contact` — the floor
+for its three tools and nothing wider — and its door (`Invoke`, `GetRun`)
+carries the same labels in the `support` set, so the caller who can start it
+already holds what the run needs.
+
+**`concierge`** (`Concierge`, owner `retail-digital`). The customer
+`customer:cust_ab12cd` (persona `ada`) may invoke it, for herself. It calls
+`get_customer`, `get_balance` and `get_payment_status`, all reads. It
+**cannot move money**, and not because the prompt says so: `initiate_payment`
+needs `RESTRICTED` and `DESTRUCTIVE`, the agent's principal is the
+`retail-customer` ceiling (`INTERNAL`, `financial`, `pii-contact`, `READ`),
+and lint rule A3 refuses an agent that lists a tool it could never call. Its
+door is `VERB_READ` — a customer's token holds no other verb — and declares
+no sets, which is what makes it reachable by a customer's unscoped session
+and by no staff catalogue.
+
+**`compliance-screen`** (`ComplianceScreen`, owner `financial-crime`). priya
+may invoke it. It calls `get_customer` to confirm which customer a screening
+is about and `screen_party` once, with the party name exactly as given, and
+reports `requires_review` and any matches exactly as returned. It **does not
+decide outcomes** and holds nothing it could decide with. Its principal is
+`CONFIDENTIAL` with `kyc` and `pii-contact`; the second compartment is why
+`auth/claims.yaml` gains one minimal role, `compliance-contact` (`INTERNAL`,
+`pii-contact`, `READ`, `compliance`), held by the agent and by priya — the
+fold intersects, so an officer who could not identify a customer would have
+an agent that could not either. Because the principal is `CONFIDENTIAL` and
+the matches themselves read at `RESTRICTED`, a run sees `requires_review`
+and not the names behind it; the prompt tells the model to report exactly
+that rather than guess.
+
+What the start card shows each persona follows from the doors: jdoe sees the
+assistant and the guardian, ada the concierge, priya the screen, and a 404
+from `GET /agents/{name}/card` for any other pairing is the answer working.
 
 ## Owners and cards
 
@@ -600,7 +648,7 @@ tool says how its approval should read. Both are annotations from garm
 v0.15.0, vendored beside the others by `mise run vendor-annotations`
 (`third_party/proto/garm/{card,meta}/v1/`), and neither is policy: `garmd`
 never reads them, its catalogue version check ignores both namespaces, and
-`mise run check-bank` still mounts all ten tools on the same v0.2.0 daemon.
+`mise run check-bank` still mounts all sixteen tools on the same v0.2.0 daemon.
 The agent runner reads them from the catalogue and puts them on every card
 the inbox renders.
 

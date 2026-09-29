@@ -50,6 +50,12 @@ roles:
     verbs: [READ]
     tool_sets: [compliance]
 
+  compliance-contact:
+    clearance: INTERNAL
+    compartments: [pii-contact]
+    verbs: [READ]
+    tool_sets: [compliance]
+
   payments-ops:
     clearance: RESTRICTED
     compartments: [financial]
@@ -88,7 +94,12 @@ users:
 
   priya:
     subject: "employee:priya"
-    roles: [compliance-officer]
+    # Two roles, the second for the compliance-screen agent: it calls
+    # get_customer, which needs pii-contact, and the fold intersects — an
+    # agent that could identify a customer for an officer who could not
+    # would reach further than the human it acts for. Same pair as
+    # claims.yaml's compliance-team segment.
+    roles: [compliance-officer, compliance-contact]
 
   sam:
     subject: "employee:sam"
@@ -116,3 +127,21 @@ agents:
     subject: "agent:support-assistant"
     roles: [support-desk, payments-ops]
     may_act_for: [jdoe]
+
+  # Same role lists as claims.yaml's agents: block, for the reason the
+  # assistant's comment gives. may_act_for mirrors tuples.yaml's can_invoke:
+  # one persona per agent.
+  card-guardian:
+    subject: "agent:card-guardian"
+    roles: [support-desk, card-support]
+    may_act_for: [jdoe]
+
+  concierge:
+    subject: "agent:concierge"
+    roles: [retail-customer]
+    may_act_for: [ada]
+
+  compliance-screen:
+    subject: "agent:compliance-screen"
+    roles: [compliance-officer, compliance-contact]
+    may_act_for: [priya]

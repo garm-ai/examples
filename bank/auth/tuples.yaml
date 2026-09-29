@@ -40,6 +40,17 @@ can_invoke:
     agent: agent:support-assistant
   - principal: employee:jdoe
     agent: agent:support-assistant
+  # One principal per agent below, which is the whole point of three more
+  # agents: each is reached by a different persona and by nobody else. jdoe
+  # freezes cards, the customer asks the concierge about herself, priya
+  # screens. A persona missing here gets a 404 from the start card, and that
+  # is the answer working, not the answer failing.
+  - principal: employee:jdoe
+    agent: agent:card-guardian
+  - principal: customer:cust_ab12cd
+    agent: agent:concierge
+  - principal: employee:priya
+    agent: agent:compliance-screen
 
 # CanRun(runner, agent): may this RUNNER execute this agent?
 #
@@ -56,6 +67,12 @@ can_invoke:
 can_run:
   - runner: runner:agentd
     agent: agent:support-assistant
+  - runner: runner:agentd
+    agent: agent:card-guardian
+  - runner: runner:agentd
+    agent: agent:concierge
+  - runner: runner:agentd
+    agent: agent:compliance-screen
 
 # HandledBy(employee, customer): is this employee the one assigned to this
 # customer? Asked only when an employee acts on a customer's behalf — the

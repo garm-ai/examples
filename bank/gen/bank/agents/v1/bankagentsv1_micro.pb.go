@@ -10,6 +10,36 @@ import (
 	proto "google.golang.org/protobuf/proto"
 )
 
+// CardGuardianHandler implements every tool CardGuardian declares, in plain
+// proto signatures with no transport wrapper. There is no
+// Unimplemented embed: a tool added to the .proto and not implemented
+// here fails to COMPILE, rather than mounting and answering
+// Unimplemented to a real caller at runtime.
+type CardGuardianHandler interface {
+	Invoke(context.Context, *CardGuardianRequest) (*v1.RunRef, error)
+	GetRun(context.Context, *v1.RunRef) (*v1.RunStatus, error)
+}
+
+// ComplianceScreenHandler implements every tool ComplianceScreen declares, in plain
+// proto signatures with no transport wrapper. There is no
+// Unimplemented embed: a tool added to the .proto and not implemented
+// here fails to COMPILE, rather than mounting and answering
+// Unimplemented to a real caller at runtime.
+type ComplianceScreenHandler interface {
+	Invoke(context.Context, *ComplianceScreenRequest) (*v1.RunRef, error)
+	GetRun(context.Context, *v1.RunRef) (*v1.RunStatus, error)
+}
+
+// ConciergeHandler implements every tool Concierge declares, in plain
+// proto signatures with no transport wrapper. There is no
+// Unimplemented embed: a tool added to the .proto and not implemented
+// here fails to COMPILE, rather than mounting and answering
+// Unimplemented to a real caller at runtime.
+type ConciergeHandler interface {
+	Invoke(context.Context, *ConciergeRequest) (*v1.RunRef, error)
+	GetRun(context.Context, *v1.RunRef) (*v1.RunStatus, error)
+}
+
 // SupportAssistantHandler implements every tool SupportAssistant declares, in plain
 // proto signatures with no transport wrapper. There is no
 // Unimplemented embed: a tool added to the .proto and not implemented
@@ -18,6 +48,183 @@ import (
 type SupportAssistantHandler interface {
 	Invoke(context.Context, *SupportRequest) (*v1.RunRef, error)
 	GetRun(context.Context, *v1.RunRef) (*v1.RunStatus, error)
+}
+
+// ServeCardGuardian registers one micro endpoint per tool CardGuardian declares.
+func ServeCardGuardian(r toolbind.Registrar, h CardGuardianHandler) error {
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.card_guardian",
+			Subject:         "bank.agents.v1.CardGuardian.Invoke",
+			Method:          "Invoke",
+			Service:         "bank.agents.v1.CardGuardian",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(CardGuardianRequest) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*CardGuardianRequest)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.CardGuardian.Invoke: request is %T, want %T", req, (*CardGuardianRequest)(nil))
+			}
+			res, err := h.Invoke(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.CardGuardian.Invoke: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.card_guardian_run",
+			Subject:         "bank.agents.v1.CardGuardian.GetRun",
+			Method:          "GetRun",
+			Service:         "bank.agents.v1.CardGuardian",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.RunRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.RunRef)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.CardGuardian.GetRun: request is %T, want %T", req, (*v1.RunRef)(nil))
+			}
+			res, err := h.GetRun(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.CardGuardian.GetRun: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ServeComplianceScreen registers one micro endpoint per tool ComplianceScreen declares.
+func ServeComplianceScreen(r toolbind.Registrar, h ComplianceScreenHandler) error {
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.compliance_screen",
+			Subject:         "bank.agents.v1.ComplianceScreen.Invoke",
+			Method:          "Invoke",
+			Service:         "bank.agents.v1.ComplianceScreen",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(ComplianceScreenRequest) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*ComplianceScreenRequest)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.ComplianceScreen.Invoke: request is %T, want %T", req, (*ComplianceScreenRequest)(nil))
+			}
+			res, err := h.Invoke(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.ComplianceScreen.Invoke: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.compliance_screen_run",
+			Subject:         "bank.agents.v1.ComplianceScreen.GetRun",
+			Method:          "GetRun",
+			Service:         "bank.agents.v1.ComplianceScreen",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.RunRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.RunRef)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.ComplianceScreen.GetRun: request is %T, want %T", req, (*v1.RunRef)(nil))
+			}
+			res, err := h.GetRun(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.ComplianceScreen.GetRun: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ServeConcierge registers one micro endpoint per tool Concierge declares.
+func ServeConcierge(r toolbind.Registrar, h ConciergeHandler) error {
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.concierge",
+			Subject:         "bank.agents.v1.Concierge.Invoke",
+			Method:          "Invoke",
+			Service:         "bank.agents.v1.Concierge",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(ConciergeRequest) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*ConciergeRequest)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.Concierge.Invoke: request is %T, want %T", req, (*ConciergeRequest)(nil))
+			}
+			res, err := h.Invoke(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.Concierge.Invoke: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.concierge_run",
+			Subject:         "bank.agents.v1.Concierge.GetRun",
+			Method:          "GetRun",
+			Service:         "bank.agents.v1.Concierge",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.RunRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.RunRef)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.Concierge.GetRun: request is %T, want %T", req, (*v1.RunRef)(nil))
+			}
+			res, err := h.GetRun(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.Concierge.GetRun: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ServeSupportAssistant registers one micro endpoint per tool SupportAssistant declares.
@@ -93,7 +300,64 @@ const ContractVersion = "v0.1.0"
 // response returns and is garm's business, not the wire's. A hash that
 // moved when a read: clearance changed would mark every service
 // incompatible over a change that cannot break unmarshalling.
-const DescriptorHash = "397b64fb9bb106973a1863794f2744bd79317159f5663127d2f874f6f3a9f166"
+const DescriptorHash = "2d651d937aa09f98588dae3351a46e60dc62f8e8686f7891190e4ee6e554c855"
+
+var CardGuardianTools = []toolbind.ToolRef{
+	{
+		FQN:             "bank.agents.v1.card_guardian",
+		Subject:         "bank.agents.v1.CardGuardian.Invoke",
+		Method:          "Invoke",
+		Service:         "bank.agents.v1.CardGuardian",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+	{
+		FQN:             "bank.agents.v1.card_guardian_run",
+		Subject:         "bank.agents.v1.CardGuardian.GetRun",
+		Method:          "GetRun",
+		Service:         "bank.agents.v1.CardGuardian",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+}
+
+var ComplianceScreenTools = []toolbind.ToolRef{
+	{
+		FQN:             "bank.agents.v1.compliance_screen",
+		Subject:         "bank.agents.v1.ComplianceScreen.Invoke",
+		Method:          "Invoke",
+		Service:         "bank.agents.v1.ComplianceScreen",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+	{
+		FQN:             "bank.agents.v1.compliance_screen_run",
+		Subject:         "bank.agents.v1.ComplianceScreen.GetRun",
+		Method:          "GetRun",
+		Service:         "bank.agents.v1.ComplianceScreen",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+}
+
+var ConciergeTools = []toolbind.ToolRef{
+	{
+		FQN:             "bank.agents.v1.concierge",
+		Subject:         "bank.agents.v1.Concierge.Invoke",
+		Method:          "Invoke",
+		Service:         "bank.agents.v1.Concierge",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+	{
+		FQN:             "bank.agents.v1.concierge_run",
+		Subject:         "bank.agents.v1.Concierge.GetRun",
+		Method:          "GetRun",
+		Service:         "bank.agents.v1.Concierge",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+}
 
 var SupportAssistantTools = []toolbind.ToolRef{
 	{

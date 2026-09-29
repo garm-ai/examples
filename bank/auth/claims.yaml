@@ -71,6 +71,22 @@ roles:
     verbs: [READ]
     tool_sets: [compliance]
 
+  compliance-contact:
+    # get_customer's masked shape, reached from the compliance catalogue.
+    # get_customer is compartmented pii-contact and annotated into both the
+    # support and compliance sets; compliance-officer holds neither the
+    # compartment nor, deliberately, anything outside kyc. This is the
+    # smallest bundle that lets a compliance session confirm WHICH customer a
+    # screening is about — INTERNAL, one compartment, READ, and only the set
+    # it already works in. It exists for the compliance-screen agent, and
+    # priya holds it too, because the fold intersects: an agent that could
+    # identify a customer for an officer who could not would reach further
+    # than the human it acts for.
+    clearance: INTERNAL
+    compartments: [pii-contact]
+    verbs: [READ]
+    tool_sets: [compliance]
+
   payments-ops:
     # initiate_payment (DESTRUCTIVE, RESTRICTED, gated on a human grant
     # upstream of this policy) and get_payment_status (READ).
@@ -108,7 +124,7 @@ roles:
 segments:
   support-staff:   { kind: employee, roles: [support-desk, card-support] }
   fraud-team:      { kind: employee, roles: [fraud-analyst] }
-  compliance-team: { kind: employee, roles: [compliance-officer] }
+  compliance-team: { kind: employee, roles: [compliance-officer, compliance-contact] }
   payments-team:   { kind: employee, roles: [payments-ops] }
   retail:          { kind: customer, roles: [retail-customer] }
 
@@ -130,3 +146,28 @@ agents:
   # It must stay at least as wide as support_assistant.proto's `principal`
   # block, or lint rule A3 and this file disagree about what the agent is.
   support-assistant: { roles: [support-desk, payments-ops] }
+
+  # The card guardian: get_customer, list_cards and freeze_card. card-support
+  # is what makes the card tools visible — CONFIDENTIAL, card-data, WRITE —
+  # and support-desk is the first-line shape for get_customer. The union
+  # carries `financial` too, which card_guardian.proto's principal does not
+  # request: it changes nothing reachable, because the allowlist names no
+  # financial tool and the runner shows the model the allowlist, not the
+  # claim. NOT unfreeze_card, and not because of this block — the agent's
+  # proto does not list it, and an allowlist is a wall where a prompt is
+  # advice.
+  card-guardian: { roles: [support-desk, card-support] }
+
+  # The concierge: the customer's own ceiling and nothing above it. One role,
+  # the one the customer holds, so the fold against a customer's token is
+  # the identity — the agent brings nothing to the delegation the customer
+  # did not already have. No tool_sets, like the role: a customer's session
+  # is unscoped, and concierge.proto's door declares no sets for the same
+  # reason.
+  concierge: { roles: [retail-customer] }
+
+  # The compliance screen: screen_party and get_customer. compliance-officer
+  # is kyc at CONFIDENTIAL in the compliance set; compliance-contact adds
+  # the pii-contact get_customer needs, and nothing else. Exactly
+  # compliance_screen.proto's principal.
+  compliance-screen: { roles: [compliance-officer, compliance-contact] }

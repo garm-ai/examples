@@ -172,27 +172,32 @@ dir = "bank"
 # changes, and doing that by hand is how a pin goes stale. sed with -i.bak and
 # -E is the spelling that works on both BSD and GNU sed; the .bak is removed
 # rather than left for .gitignore to catch.
+#
+# One line per agent: the prompt's kebab-case name and the proto's snake_case
+# one are the same word, so the list is the agent names and nothing else.
 run = """
 set -e
-SUM=$(shasum -a 256 prompts/support-assistant.md | cut -d' ' -f1)
-F=proto/bank/agents/v1/support_assistant.proto
-sed -i.bak -E "s/(sha256: \\")[0-9a-f]{64}(\\")/\\1${SUM}\\2/" "$F"
-rm -f "$F.bak"
-echo "support-assistant: $SUM"
+for AGENT in support-assistant card-guardian concierge compliance-screen; do
+  SUM=$(shasum -a 256 "prompts/$AGENT.md" | cut -d' ' -f1)
+  F="proto/bank/agents/v1/$(echo "$AGENT" | tr - _).proto"
+  sed -i.bak -E "s/(sha256: \\")[0-9a-f]{64}(\\")/\\1${SUM}\\2/" "$F"
+  rm -f "$F.bak"
+  echo "$AGENT: $SUM"
+done
 """
 
 [tasks."prompt-sha-check"]
 description = "Fail if a committed prompt hash no longer matches its prompt"
 dir = "bank"
 # Same shape as gen-check, and for the same reason: the thing that can go
-# stale is committed, so something has to notice. Scoped to the one proto so
-# an unrelated edit in the working tree does not fail it.
+# stale is committed, so something has to notice. Scoped to the agent protos
+# so an unrelated edit in the working tree does not fail it.
 run = """
 set -e
 mise run prompt-sha
-if ! git diff --quiet -- proto/bank/agents/v1/support_assistant.proto; then
+if ! git diff --quiet -- proto/bank/agents/v1/; then
   echo "a prompt changed and its pinned sha256 did not — run 'mise run prompt-sha' and commit:" >&2
-  git diff -- proto/bank/agents/v1/support_assistant.proto >&2
+  git diff -- proto/bank/agents/v1/ >&2
   exit 1
 fi
 echo "ok: every prompt hash matches its file"
