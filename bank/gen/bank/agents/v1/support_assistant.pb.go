@@ -23,10 +23,10 @@ package bankagentsv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	v1 "github.com/garm-ai/contracts/garm/agent/v1"
+	_ "github.com/garm-ai/contracts/garm/meta/v1"
+	_ "github.com/garm-ai/contracts/garm/tool/v1"
 	_ "github.com/garm-ai/examples/bank/gen/bank/v1"
-	v1 "github.com/garm-ai/garm/contracts/garm/agent/v1"
-	_ "github.com/garm-ai/garm/contracts/garm/meta/v1"
-	_ "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

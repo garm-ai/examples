@@ -9,6 +9,12 @@ inputs:
     # files name, and a second copy of the same descriptors would register
     # the same proto file twice and panic at init. Same reason third_party/
     # is not an input.
+    #
+    # Both adopted packages must be held at a tag built against
+    # github.com/garm-ai/contracts — taxonomy v0.2.0, web v0.2.0 — for the
+    # same reason in the other direction: a tag older than the split carries
+    # github.com/garm-ai/garm/contracts, which registers garm/tool/v1 a
+    # second time alongside this module's own contract.
     exclude_paths:
       - proto/tools
       - proto/web

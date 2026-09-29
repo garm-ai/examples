@@ -16,8 +16,8 @@ import (
 
 	"github.com/garm-ai/examples/calculator"
 	calcv1 "github.com/garm-ai/examples/calculator/gen/calc/v1"
-	"github.com/garm-ai/garm/contracts/callctx"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/callctx"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 	"github.com/garm-ai/tool-go/garmtool"
 )
 

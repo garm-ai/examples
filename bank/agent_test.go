@@ -10,8 +10,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	bankagentsv1 "github.com/garm-ai/examples/bank/gen/bank/agents/v1"
-	agentv1 "github.com/garm-ai/garm/contracts/garm/agent/v1"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	agentv1 "github.com/garm-ai/contracts/garm/agent/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 )
 
 // The pin is the whole point of putting a hash in the annotation.

@@ -5,8 +5,14 @@ package accountsv1
 import (
 	context "context"
 	fmt "fmt"
+	cards "github.com/garm-ai/contracts/cards"
+	v1 "github.com/garm-ai/contracts/garm/card/v1"
 	toolbind "github.com/garm-ai/tool-go/toolbind"
 	proto "google.golang.org/protobuf/proto"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoregistry "google.golang.org/protobuf/reflect/protoregistry"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	sync "sync"
 )
 
 // AccountsServiceHandler implements every tool AccountsService declares, in plain
@@ -19,7 +25,147 @@ type AccountsServiceHandler interface {
 	GetCustomer(context.Context, *GetCustomerRequest) (*GetCustomerResponse, error)
 }
 
-// ServeAccountsService registers one micro endpoint per tool AccountsService declares.
+// AccountsServiceCards is the optional interface for overriding a generated card.
+//
+// Implement a method of it on your handler and ServeAccountsService registers
+// yours; leave it out and the generated default is registered. It is
+// per method, not all or nothing: overriding the approval card of one
+// tool leaves every other card generated.
+//
+// An override gets the ref, its own data from its own store, and the
+// invocation from ctx. It MUST label what it adds — an unlabelled
+// element takes the endpoint's own policy, and an element labelled
+// BELOW the endpoint fails the whole card rather than being served.
+// cards.Join is how to label something at the endpoint's floor or
+// higher.
+type AccountsServiceCards interface {
+	GetBalanceInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	GetBalanceResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+	GetCustomerInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	GetCustomerResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+}
+
+// garmCardMethod resolves a method descriptor for a generated card.
+//
+// The descriptors come from this package's own .pb.go, which registered
+// them at init; the lookup is by the full name the contract gives,
+// rather than off the file variable, whose Go name is derived from the
+// proto path and is a spelling this generator would have to reproduce.
+var garmCardMethods sync.Map
+
+func garmCardMethod(service, method string) (protoreflect.MethodDescriptor, error) {
+	key := service + "/" + method
+	if v, ok := garmCardMethods.Load(key); ok {
+		return v.(protoreflect.MethodDescriptor), nil
+	}
+	d, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(service))
+	if err != nil {
+		return nil, fmt.Errorf("garm cards: %s is not in the descriptor registry: %w", service, err)
+	}
+	sd, ok := d.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("garm cards: %s is not a service", service)
+	}
+	md := sd.Methods().ByName(protoreflect.Name(method))
+	if md == nil {
+		return nil, fmt.Errorf("garm cards: %s has no method %s", service, method)
+	}
+	garmCardMethods.Store(key, md)
+	return md, nil
+}
+
+// DefaultAccountsServiceGetBalanceInputCard is the generated form for GetBalance.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultAccountsServiceGetBalanceInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("accounts.v1.AccountsService", "GetBalance")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultAccountsServiceGetBalanceResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response GetBalance returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override GetBalanceResultCard, read your
+// own row, and call AccountsServiceGetBalanceResultCardFrom with it.
+func DefaultAccountsServiceGetBalanceResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// AccountsServiceGetBalanceResultCardFrom builds GetBalance's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func AccountsServiceGetBalanceResultCardFrom(ref *v1.CallRef, resp *GetBalanceResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("accounts.v1.AccountsService", "GetBalance")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// DefaultAccountsServiceGetCustomerInputCard is the generated form for GetCustomer.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultAccountsServiceGetCustomerInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("accounts.v1.AccountsService", "GetCustomer")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultAccountsServiceGetCustomerResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response GetCustomer returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override GetCustomerResultCard, read your
+// own row, and call AccountsServiceGetCustomerResultCardFrom with it.
+func DefaultAccountsServiceGetCustomerResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// AccountsServiceGetCustomerResultCardFrom builds GetCustomer's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func AccountsServiceGetCustomerResultCardFrom(ref *v1.CallRef, resp *GetCustomerResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("accounts.v1.AccountsService", "GetCustomer")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// ServeAccountsService registers one micro endpoint per tool AccountsService declares,
+// and one per card those tools serve.
+//
+// A card is registered exactly like a tool, because it IS one: the
+// daemon routes to it through the same ten steps, at the parent tool's
+// clearance, into the same ledger. Where h implements a card's own
+// signature that override is registered; otherwise the generated
+// default is. See AccountsServiceCards.
 func ServeAccountsService(r toolbind.Registrar, h AccountsServiceHandler) error {
 	if err := r.Endpoint(
 		toolbind.ToolRef{
@@ -71,6 +217,106 @@ func ServeAccountsService(r toolbind.Registrar, h AccountsServiceHandler) error 
 				return nil, fmt.Errorf("accounts.v1.AccountsService.GetCustomer: handler returned no response and no error")
 			}
 			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "accounts.v1.get_balance_input_card",
+			Subject:         "accounts.v1.AccountsService.GetBalanceInputCard",
+			Method:          "GetBalanceInputCard",
+			Service:         "accounts.v1.AccountsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("accounts.v1.AccountsService.GetBalanceInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				GetBalanceInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.GetBalanceInputCard(ctx, in)
+			}
+			return DefaultAccountsServiceGetBalanceInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "accounts.v1.get_balance_result_card",
+			Subject:         "accounts.v1.AccountsService.GetBalanceResultCard",
+			Method:          "GetBalanceResultCard",
+			Service:         "accounts.v1.AccountsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("accounts.v1.AccountsService.GetBalanceResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				GetBalanceResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.GetBalanceResultCard(ctx, in)
+			}
+			return DefaultAccountsServiceGetBalanceResultCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "accounts.v1.get_customer_input_card",
+			Subject:         "accounts.v1.AccountsService.GetCustomerInputCard",
+			Method:          "GetCustomerInputCard",
+			Service:         "accounts.v1.AccountsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("accounts.v1.AccountsService.GetCustomerInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				GetCustomerInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.GetCustomerInputCard(ctx, in)
+			}
+			return DefaultAccountsServiceGetCustomerInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "accounts.v1.get_customer_result_card",
+			Subject:         "accounts.v1.AccountsService.GetCustomerResultCard",
+			Method:          "GetCustomerResultCard",
+			Service:         "accounts.v1.AccountsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("accounts.v1.AccountsService.GetCustomerResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				GetCustomerResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.GetCustomerResultCard(ctx, in)
+			}
+			return DefaultAccountsServiceGetCustomerResultCard(ctx, in)
 		},
 	); err != nil {
 		return err

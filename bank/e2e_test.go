@@ -17,8 +17,8 @@ import (
 	cardsv1 "github.com/garm-ai/examples/bank/gen/cards/v1"
 	paymentsv1 "github.com/garm-ai/examples/bank/gen/payments/v1"
 	screeningv1 "github.com/garm-ai/examples/bank/gen/screening/v1"
-	"github.com/garm-ai/garm/contracts/callctx"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	"github.com/garm-ai/contracts/callctx"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 	"github.com/garm-ai/tool-go/garmtool"
 )
 

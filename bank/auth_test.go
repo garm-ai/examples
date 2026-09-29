@@ -7,7 +7,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 )
 
 // personaFile is only as much of personas.yaml as this test reasons about.

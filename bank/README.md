@@ -677,6 +677,18 @@ same. The service that answers `fetch_page` is not in this tree: it is the
 package's own `webd`, run beside `bankd` by the deployment, with the host
 allowlist in its policy file.
 
+**An adopted package's tag is part of the contract migration.** The taxonomy
+module moved to `v0.2.0` and `web` to `v0.2.0` when the contracts left `garm`,
+and the bump is the dependency's identity rather than its content: the
+`.proto` is byte-identical across it, and this tree's copy of it still matches
+the module cache exactly. Taking the older tag is not an option that merely
+lags. `taxonomy@v0.1.1` is generated against
+`github.com/garm-ai/garm/contracts`, so a binary holding it beside anything on
+`github.com/garm-ai/contracts` registers `garm/tool/v1/*.proto` twice and dies
+in `protoregistry` at init — it compiles, and then does not start. **When you
+adopt a package here, check that the tag you take is built against the same
+contract module this one is.**
+
 The role `support-desk` gains the `internet` compartment and the `research`
 set, in `auth/claims.yaml` and `auth/personas.yaml` alike, so a first-line
 persona can reach the tool at all. The assistant and the guardian hold that

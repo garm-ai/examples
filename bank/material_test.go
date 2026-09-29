@@ -7,7 +7,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	paymentsv1 "github.com/garm-ai/examples/bank/gen/payments/v1"
-	toolv1 "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	toolv1 "github.com/garm-ai/contracts/garm/tool/v1"
 )
 
 // What a human is actually approving.

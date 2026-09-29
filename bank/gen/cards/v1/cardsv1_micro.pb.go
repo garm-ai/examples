@@ -5,8 +5,14 @@ package cardsv1
 import (
 	context "context"
 	fmt "fmt"
+	cards "github.com/garm-ai/contracts/cards"
+	v1 "github.com/garm-ai/contracts/garm/card/v1"
 	toolbind "github.com/garm-ai/tool-go/toolbind"
 	proto "google.golang.org/protobuf/proto"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoregistry "google.golang.org/protobuf/reflect/protoregistry"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	sync "sync"
 )
 
 // CardsServiceHandler implements every tool CardsService declares, in plain
@@ -20,7 +26,191 @@ type CardsServiceHandler interface {
 	FreezeCard(context.Context, *FreezeCardRequest) (*FreezeCardResponse, error)
 }
 
-// ServeCardsService registers one micro endpoint per tool CardsService declares.
+// CardsServiceCards is the optional interface for overriding a generated card.
+//
+// Implement a method of it on your handler and ServeCardsService registers
+// yours; leave it out and the generated default is registered. It is
+// per method, not all or nothing: overriding the approval card of one
+// tool leaves every other card generated.
+//
+// An override gets the ref, its own data from its own store, and the
+// invocation from ctx. It MUST label what it adds — an unlabelled
+// element takes the endpoint's own policy, and an element labelled
+// BELOW the endpoint fails the whole card rather than being served.
+// cards.Join is how to label something at the endpoint's floor or
+// higher.
+type CardsServiceCards interface {
+	ListCardsInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	ListCardsResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+	UnfreezeCardInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	UnfreezeCardResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+	FreezeCardInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	FreezeCardResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+}
+
+// garmCardMethod resolves a method descriptor for a generated card.
+//
+// The descriptors come from this package's own .pb.go, which registered
+// them at init; the lookup is by the full name the contract gives,
+// rather than off the file variable, whose Go name is derived from the
+// proto path and is a spelling this generator would have to reproduce.
+var garmCardMethods sync.Map
+
+func garmCardMethod(service, method string) (protoreflect.MethodDescriptor, error) {
+	key := service + "/" + method
+	if v, ok := garmCardMethods.Load(key); ok {
+		return v.(protoreflect.MethodDescriptor), nil
+	}
+	d, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(service))
+	if err != nil {
+		return nil, fmt.Errorf("garm cards: %s is not in the descriptor registry: %w", service, err)
+	}
+	sd, ok := d.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("garm cards: %s is not a service", service)
+	}
+	md := sd.Methods().ByName(protoreflect.Name(method))
+	if md == nil {
+		return nil, fmt.Errorf("garm cards: %s has no method %s", service, method)
+	}
+	garmCardMethods.Store(key, md)
+	return md, nil
+}
+
+// DefaultCardsServiceListCardsInputCard is the generated form for ListCards.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultCardsServiceListCardsInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("cards.v1.CardsService", "ListCards")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultCardsServiceListCardsResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response ListCards returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override ListCardsResultCard, read your
+// own row, and call CardsServiceListCardsResultCardFrom with it.
+func DefaultCardsServiceListCardsResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// CardsServiceListCardsResultCardFrom builds ListCards's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func CardsServiceListCardsResultCardFrom(ref *v1.CallRef, resp *ListCardsResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("cards.v1.CardsService", "ListCards")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// DefaultCardsServiceUnfreezeCardInputCard is the generated form for UnfreezeCard.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultCardsServiceUnfreezeCardInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("cards.v1.CardsService", "UnfreezeCard")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultCardsServiceUnfreezeCardResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response UnfreezeCard returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override UnfreezeCardResultCard, read your
+// own row, and call CardsServiceUnfreezeCardResultCardFrom with it.
+func DefaultCardsServiceUnfreezeCardResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// CardsServiceUnfreezeCardResultCardFrom builds UnfreezeCard's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func CardsServiceUnfreezeCardResultCardFrom(ref *v1.CallRef, resp *FreezeCardResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("cards.v1.CardsService", "UnfreezeCard")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// DefaultCardsServiceFreezeCardInputCard is the generated form for FreezeCard.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultCardsServiceFreezeCardInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("cards.v1.CardsService", "FreezeCard")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultCardsServiceFreezeCardResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response FreezeCard returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override FreezeCardResultCard, read your
+// own row, and call CardsServiceFreezeCardResultCardFrom with it.
+func DefaultCardsServiceFreezeCardResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// CardsServiceFreezeCardResultCardFrom builds FreezeCard's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func CardsServiceFreezeCardResultCardFrom(ref *v1.CallRef, resp *FreezeCardResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("cards.v1.CardsService", "FreezeCard")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// ServeCardsService registers one micro endpoint per tool CardsService declares,
+// and one per card those tools serve.
+//
+// A card is registered exactly like a tool, because it IS one: the
+// daemon routes to it through the same ten steps, at the parent tool's
+// clearance, into the same ledger. Where h implements a card's own
+// signature that override is registered; otherwise the generated
+// default is. See CardsServiceCards.
 func ServeCardsService(r toolbind.Registrar, h CardsServiceHandler) error {
 	if err := r.Endpoint(
 		toolbind.ToolRef{
@@ -99,6 +289,156 @@ func ServeCardsService(r toolbind.Registrar, h CardsServiceHandler) error {
 				return nil, fmt.Errorf("cards.v1.CardsService.FreezeCard: handler returned no response and no error")
 			}
 			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "cards.v1.list_cards_input_card",
+			Subject:         "cards.v1.CardsService.ListCardsInputCard",
+			Method:          "ListCardsInputCard",
+			Service:         "cards.v1.CardsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("cards.v1.CardsService.ListCardsInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				ListCardsInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.ListCardsInputCard(ctx, in)
+			}
+			return DefaultCardsServiceListCardsInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "cards.v1.list_cards_result_card",
+			Subject:         "cards.v1.CardsService.ListCardsResultCard",
+			Method:          "ListCardsResultCard",
+			Service:         "cards.v1.CardsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("cards.v1.CardsService.ListCardsResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				ListCardsResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.ListCardsResultCard(ctx, in)
+			}
+			return DefaultCardsServiceListCardsResultCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "cards.v1.unfreeze_card_input_card",
+			Subject:         "cards.v1.CardsService.UnfreezeCardInputCard",
+			Method:          "UnfreezeCardInputCard",
+			Service:         "cards.v1.CardsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("cards.v1.CardsService.UnfreezeCardInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				UnfreezeCardInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.UnfreezeCardInputCard(ctx, in)
+			}
+			return DefaultCardsServiceUnfreezeCardInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "cards.v1.unfreeze_card_result_card",
+			Subject:         "cards.v1.CardsService.UnfreezeCardResultCard",
+			Method:          "UnfreezeCardResultCard",
+			Service:         "cards.v1.CardsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("cards.v1.CardsService.UnfreezeCardResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				UnfreezeCardResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.UnfreezeCardResultCard(ctx, in)
+			}
+			return DefaultCardsServiceUnfreezeCardResultCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "cards.v1.freeze_card_input_card",
+			Subject:         "cards.v1.CardsService.FreezeCardInputCard",
+			Method:          "FreezeCardInputCard",
+			Service:         "cards.v1.CardsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("cards.v1.CardsService.FreezeCardInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				FreezeCardInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.FreezeCardInputCard(ctx, in)
+			}
+			return DefaultCardsServiceFreezeCardInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "cards.v1.freeze_card_result_card",
+			Subject:         "cards.v1.CardsService.FreezeCardResultCard",
+			Method:          "FreezeCardResultCard",
+			Service:         "cards.v1.CardsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("cards.v1.CardsService.FreezeCardResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				FreezeCardResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.FreezeCardResultCard(ctx, in)
+			}
+			return DefaultCardsServiceFreezeCardResultCard(ctx, in)
 		},
 	); err != nil {
 		return err

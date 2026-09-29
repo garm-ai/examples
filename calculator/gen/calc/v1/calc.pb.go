@@ -14,7 +14,7 @@
 package calcv1
 
 import (
-	_ "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	_ "github.com/garm-ai/contracts/garm/tool/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

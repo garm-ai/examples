@@ -54,14 +54,48 @@ so a contract change cannot ship without the binding that matches it.
 
 The one generated thing that IS ignored is `calculator/gen/garm/`, the output
 for the vendored annotations, which nothing imports because the real one lives
-in `garm/contracts`.
+in `github.com/garm-ai/contracts`.
+
+## The annotations are vendored, and vendored copies drift
+
+Both trees keep the garm annotations as `.proto` files under
+`third_party/proto/garm/`, so their own protos can write
+`import "garm/tool/v1/tool.proto"` and have it resolve. They are copies, and a
+copy of a published file goes stale the moment the publisher moves — which
+happened here: the bank was carrying the annotations as they stood at garm
+v0.16.0 and the calculator's were older still, from before `FieldPolicy.source`
+and `Approval.material_fields` existed.
+
+**Nothing warns you about this.** A stale vendored annotation compiles: your
+protos still parse, the catalogue still builds, and the only symptom is that a
+field you could have declared has no syntax in your tree to declare it with.
+
+So `mise run vendor-annotations` refreshes both trees from the pinned contract
+module and `mise run vendor-check` fails if either has drifted, in CI with
+everything else. The bytes are written verbatim, so the check is a byte
+comparison. **If you are adding a tool here and an annotation you expect is
+missing, run those two before anything else.**
+
+It is not `garm init --force`, which is the documented way to vendor them and
+is right for a new tree. `init` writes six files and two of them are `buf.yaml`
+and `buf.gen.yaml`: on these trees it would replace the bank's protovalidate
+dependency, the `exclude_paths` keeping the adopted web package out of
+generation, and both trees' real `contract_version`, with scaffold defaults.
+Re-vendoring must move the annotations and nothing else.
 
 ## Why this repository is the acceptance test
 
 It builds against **published artifacts only** — the annotations and contracts
-from [`garm`](https://github.com/garm-ai/garm), the runtime from
+from [`contracts`](https://github.com/garm-ai/contracts), the runtime from
 [`tool-go`](https://github.com/garm-ai/tool-go) — with no replace directive
 and no path to the daemon. CI asserts both.
+
+The contract used to come from [`garm`](https://github.com/garm-ai/garm), which
+is now the CLI and the generator and nothing this module links. The two cannot
+be held at once: `github.com/garm-ai/garm/contracts/garm/tool/v1` and
+`github.com/garm-ai/contracts/garm/tool/v1` register the same descriptor file
+paths, so a binary linking both compiles and then dies in `protoregistry` at
+init. That is why `go.mod` names neither `garm` nor anything that requires it.
 
 If it builds, the boundaries are real. If it needed a shortcut, they are not,
 and the shortcut is the bug.

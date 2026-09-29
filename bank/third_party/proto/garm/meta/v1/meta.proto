@@ -9,7 +9,7 @@
 // garm vocabularies own.
 syntax = "proto3";
 package garm.meta.v1;
-option go_package = "github.com/garm-ai/garm/contracts/garm/meta/v1;metav1";
+option go_package = "github.com/garm-ai/contracts/garm/meta/v1;metav1";
 
 import "google/protobuf/descriptor.proto";
 

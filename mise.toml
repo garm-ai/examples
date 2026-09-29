@@ -5,27 +5,61 @@ go = "1.26"
 buf = "1"
 
 [tasks."vendor-annotations"]
-description = "Refresh the vendored garm annotations from the pinned garm module"
-dir = "bank"
-# NOT `garm init --force`: init also writes buf.yaml and buf.gen.yaml, and
-# this tree's copies are customised (a protovalidate dependency, a real
-# contract_version). It would overwrite both to scaffold defaults.
+description = "Refresh the vendored garm annotations from the pinned contract module"
+# NOT `garm init --force`, even though that is the documented way to vendor
+# them and the CLI at v0.19.0 does read the bytes out of
+# github.com/garm-ai/contracts. init writes SIX files, and two of them are
+# buf.yaml and buf.gen.yaml: it would replace the bank's protovalidate
+# dependency, the exclude_paths that keep the adopted web/ and tools/
+# packages out of generation, and both trees' real contract_version, with
+# scaffold defaults. Re-vendoring must move the annotations and nothing else.
 #
 # The module cache is the source of truth because it is the same bytes the Go
-# build uses, so a mismatch between the vendored .proto and the linked
+# build links, so a mismatch between the vendored .proto and the linked
 # contracts package is impossible by construction. Cache files are 0444; the
 # chmod is on the copy, never on the cache.
+#
+# Both trees, because the calculator vendors the tool annotations too and a
+# task that refreshed only the bank would leave the other one drifting
+# silently — which is the hole this task exists to cover. Nothing in the
+# platform warns a tree that its vendored annotations are older than the
+# module it compiles against; the version below is the only pin there is, so
+# it moves in the same commit as go.mod's.
 run = """
 set -e
-VERSION=v0.16.0
-go mod download github.com/garm-ai/garm@$VERSION
-SRC="$(go env GOMODCACHE)/github.com/garm-ai/garm@$VERSION/proto/garm"
-for f in tool/v1/tool.proto agent/v1/agent.proto card/v1/card.proto meta/v1/meta.proto; do
-  mkdir -p "third_party/proto/garm/$(dirname "$f")"
-  cp "$SRC/$f" "third_party/proto/garm/$f"
-  chmod u+w "third_party/proto/garm/$f"
-done
-echo "vendored garm/{tool,agent,card,meta}/v1 from garm $VERSION"
+VERSION=v0.3.0
+go mod download github.com/garm-ai/contracts@$VERSION
+SRC="$(go env GOMODCACHE)/github.com/garm-ai/contracts@$VERSION/proto/garm"
+vendor() {
+  DEST="$1"; shift
+  for f in "$@"; do
+    mkdir -p "$DEST/third_party/proto/garm/$(dirname "$f")"
+    cp "$SRC/$f" "$DEST/third_party/proto/garm/$f"
+    chmod u+w "$DEST/third_party/proto/garm/$f"
+  done
+  echo "$DEST: vendored $* from contracts $VERSION"
+}
+vendor bank tool/v1/tool.proto agent/v1/agent.proto card/v1/card.proto meta/v1/meta.proto
+vendor calculator tool/v1/tool.proto
+"""
+
+[tasks."vendor-check"]
+description = "Fail if a vendored annotation has drifted from the contract module"
+# The gap this closes is real and garm's KNOWN-GAPS names it: nothing warns a
+# tree that its vendored annotations are older than the contracts it compiles
+# against, and the symptom is a linter that cannot see rules the module has
+# and a catalogue built from a vocabulary nobody is looking at. The bytes are
+# written verbatim, so the check is a byte comparison.
+run = """
+set -e
+mise run vendor-annotations > /dev/null
+if ! git diff --quiet -- bank/third_party calculator/third_party; then
+  echo "a vendored annotation has drifted from the pinned contract module —" >&2
+  echo "run 'mise run vendor-annotations', re-run 'mise run gen', and commit:" >&2
+  git diff --stat -- bank/third_party calculator/third_party >&2
+  exit 1
+fi
+echo "ok: every vendored annotation matches the contract module"
 """
 
 [tasks.plugin]
@@ -33,7 +67,22 @@ description = "Install the tool generator at the pinned version"
 # Pinned, not @latest: the generated binding carries a descriptor hash, and a
 # generator that moved under you changes committed output for no reason
 # anyone asked for.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.16.0"
+#
+# v0.19.0 is the generator after the contracts left this repository, so the
+# Go it emits imports github.com/garm-ai/contracts/... — which is what makes
+# it the version that must be pinned here rather than a version that could
+# be. The generated code and the linked module have to name the same package
+# or the binary links both copies of garm/tool/v1 and panics at init.
+#
+# v0.19.0 rather than v0.18.1 because v0.18.1's card emitter names its
+# helpers after the card's RPC name, which an agent service leaves bare —
+# `InputCard`, not `InvokeInputCard`, since there is nothing on that service
+# to distinguish it from. That is right on the wire, where the service
+# qualifies it, and wrong in Go, where the package does: this tree's five
+# agent services share one Go package and got five `DefaultInputCard`s.
+# v0.19.0 qualifies the Go identifier with the service name always, and
+# leaves the RPC and catalogue names alone.
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.19.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -61,14 +110,26 @@ description = "Install the garm CLI at the pinned version"
 # garm.card.v1 and garm.meta.v1 annotations and lint rules C1 and O1, which
 # the bank now relies on (owners on every service, a task_card on the
 # payment tool). v0.16.0 adds FieldPolicy.source and lint L34, which mark
-# initiate_payment's idempotency_key as the runner's.
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.16.0"
+# initiate_payment's idempotency_key as the runner's. v0.19.0 is the CLI
+# after the split: it reads the annotations it vendors and lints against out
+# of github.com/garm-ai/contracts, so the rules it applies are the ones the
+# pinned contract module actually declares — A9, A10 and C8 among them.
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.19.0"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
-# v0.2.0: the first tag that sends Garm-Invocation on the hop, which the
-# tool-go v0.5.0 services here require, and that serves ListTools.
-run = "go install github.com/garm-ai/garmd/cmd/garmd@v0.2.0"
+# v0.2.0 was the first tag that sends Garm-Invocation on the hop and serves
+# ListTools. v0.3.2 is required, not preferred, and re-vendoring the
+# annotations is what required it: `garm.card.v1.Card` is an OPAQUE LEAF to
+# the field-policy walk — like google.protobuf.Timestamp, the field holding a
+# card carries the policy for the whole value and no scalar inside one is
+# classified separately — and a daemon that does not know that walks into it
+# and refuses every card endpoint with `field "kind" has no policy and no
+# message default`. v0.2.0 does exactly that against this tree's catalogue.
+#
+# The catalogue's own digest did not move across the re-vendoring; what moved
+# is the descriptor set it embeds, which is where the card contract lives.
+run = "go install github.com/garm-ai/garmd/cmd/garmd@v0.3.2"
 
 [tasks."check-bank"]
 description = "Assert the bank catalogue mounts where it should and refuses where it should not"
@@ -254,4 +315,4 @@ run = "go vet ./..."
 run = "go fmt ./..."
 
 [tasks.ci]
-depends = ["lint", "lint-bank", "check-bank", "claims-check-bank", "prompt-sha-check", "build", "test", "gen-check"]
+depends = ["lint", "lint-bank", "check-bank", "claims-check-bank", "prompt-sha-check", "vendor-check", "build", "test", "gen-check"]
