@@ -207,7 +207,7 @@ service PaymentsService {
     // has no value a card could show. The template lists what the grant
     // digest binds, which is also exactly what the approver is approving.
     option (garm.card.v1.task_card) = {
-      title: "Payment of {amount_minor_units} {currency_code}"
+      title: "Payment: {currency_code} {amount_minor_units} (minor units)"
       body: [
         { facts: { facts: [
           { field: "beneficiary_iban"   label: "To" },

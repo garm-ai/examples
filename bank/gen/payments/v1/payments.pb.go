@@ -412,11 +412,11 @@ const file_payments_v1_payments_proto_rawDesc = "" +
 	"\x18PAYMENT_STATUS_SUBMITTED\x10\x01\x12#\n" +
 	"\x1fPAYMENT_STATUS_PENDING_APPROVAL\x10\x02\x12\x1b\n" +
 	"\x17PAYMENT_STATUS_REJECTED\x10\x03\x12\x1a\n" +
-	"\x16PAYMENT_STATUS_SETTLED\x10\x042\x8b\t\n" +
-	"\x0fPaymentsService\x12\x87\x06\n" +
-	"\x0fInitiatePayment\x12#.payments.v1.InitiatePaymentRequest\x1a$.payments.v1.InitiatePaymentResponse\"\xa8\x05\x92\xb5\x18\x8a\x04\n" +
-	"\x10initiate_payment\x12\x12Initiate a payment\x1aiMove funds from a customer account to an external beneficiary. Irreversible once submitted to the scheme. \x03((2\tfinancialB\x06\b\x01\x10\x01\x18\x01JG\b\x03\x10(\x1a\tfinancial \x84\a2\x12amount_minor_units2\x10beneficiary_iban2\rcurrency_codeR\x83\x02\x12\x96\x01Never to retry a payment whose status is unknown. It is not idempotent, and a duplicate leaves the customer out of pocket. Check payment status first.\"hA grant-required response is not a failure. Do not retry; report that the payment awaits human approval.b\bpaymentsj\a\b\x02 \xfb\x13(\x01\xd2\xc1\x18\x94\x01\n" +
-	"/Payment of {amount_minor_units} {currency_code}\x12a\x12_\n" +
+	"\x16PAYMENT_STATUS_SETTLED\x10\x042\x97\t\n" +
+	"\x0fPaymentsService\x12\x93\x06\n" +
+	"\x0fInitiatePayment\x12#.payments.v1.InitiatePaymentRequest\x1a$.payments.v1.InitiatePaymentResponse\"\xb4\x05\x92\xb5\x18\x8a\x04\n" +
+	"\x10initiate_payment\x12\x12Initiate a payment\x1aiMove funds from a customer account to an external beneficiary. Irreversible once submitted to the scheme. \x03((2\tfinancialB\x06\b\x01\x10\x01\x18\x01JG\b\x03\x10(\x1a\tfinancial \x84\a2\x12amount_minor_units2\x10beneficiary_iban2\rcurrency_codeR\x83\x02\x12\x96\x01Never to retry a payment whose status is unknown. It is not idempotent, and a duplicate leaves the customer out of pocket. Check payment status first.\"hA grant-required response is not a failure. Do not retry; report that the payment awaits human approval.b\bpaymentsj\a\b\x02 \xfb\x13(\x01\xd2\xc1\x18\xa0\x01\n" +
+	";Payment: {currency_code} {amount_minor_units} (minor units)\x12a\x12_\n" +
 	"\x16\n" +
 	"\x10beneficiary_iban\x12\x02To\n" +
 	"*\n" +
