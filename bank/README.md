@@ -43,6 +43,23 @@ annotations to make a build go green: a payment tool that mounts with less
 supervision than its schema claims is worse than one that will not mount,
 because the declaration reads as protection to everyone who reviews it.
 
+**bank/agents** — that a manifest is a schema. `SupportAssistant` is a proto
+service with a `(garm.agent.v1.agent)` annotation: the authority it runs as,
+the model alias, the bounds, the prompt it is pinned to by hash, and the two
+tools it may reach. It sits beside those tools, so widening what an agent may
+do is a proto diff on the same pull request as the tools it widens toward, and
+`mise run diff-bank` reports it like any other policy change.
+
+Two annotations on one service, answering two questions.
+`(garm.agent.v1.agent)` is what the agent **runs as**.
+`(garm.tool.v1.tool)` on `Invoke` is what a **caller** needs to start it — and
+it is `CLEARANCE_INTERNAL` with no compartments, which is much lower than the
+agent's own `RESTRICTED`. That is the point: starting a run does not require
+the authority the run will use, because the run is confined by the fold to the
+intersection of the agent's authority and the caller's, and every destructive
+thing inside it is separately gated. Conflating the two would mean only
+someone already able to move money could ask an assistant to draft one.
+
 ## One buf module, directories per domain
 
 Per-domain buf *modules* were the first attempt. Buf refuses them for a good
@@ -100,11 +117,15 @@ on it and CI asserts that. Honouring the boundary here is what makes this an
 acceptance test: if the published binary and the published contracts cannot do
 this together, nothing else that passes matters.
 
-The catalogue is accounts-only, and that is not a convenience. `payments`
-declares an approval gate and an audit stream and `garmd serve` has no flag to
-supply either, so the full bank catalogue cannot be served by any garmd that
-exists today. An accounts-only artifact is what a support cluster would run —
-and building one here is what catalogue slicing would do if it existed.
+The catalogue this test serves is accounts-only, and that is not a
+convenience. `payments` declares an approval gate and an audit stream, and the
+test starts `garmd serve` with neither a grant verifier nor an audit sink, so
+the full bank catalogue would refuse to mount here — the refusal `mise run
+check-bank` asserts. An accounts-only artifact is what a support cluster would
+run, and building one here is what catalogue slicing would do if it existed.
+The full ten-tool catalogue, grants and audit stream included, is served by
+the compose in `garm-ai/agentd`; see "The agent demo, command by command"
+below.
 
 ## What a payment grant actually binds
 
@@ -169,6 +190,247 @@ The linter refuses to *build* a catalogue serving an irreversible external
 tool with no supervision at all. The mount check then refuses to *serve* one
 whose supervision this deployment cannot apply. Getting a payment tool past
 both, ungated, takes a deliberate lie about its effects.
+
+## The agent demo, command by command
+
+`garm-ai/agentd` holds the runner and a compose file that brings the whole
+thing up: NATS with JetStream, Postgres, SeaweedFS as the S3, the dev IdP, the
+STS, `garmd`, `bankd` built from this tree, and `agentd`. From a checkout of
+`agentd` beside this one (`deploy/README.md` there lists the ports and what
+`deploy/.env` may move):
+
+```console
+$ cd ../agentd
+$ mise run up
+== storage, identity and the broker
+createbucket: bucket garm created
+provision: GARM_LEDGER: created
+provision: GARM_AUDIT: created
+provision: GARM_SINK_DEAD: created
+== publishing the bank catalogue
+ok — 16 file(s), no errors
+wrote bank.binpb
+  10 tool(s) in 5 package(s), 16 file(s), 18 documented field(s), schema v1
+  digest sha256:fd6be733…
+wrote s3://garm/catalogue/prompts/0654986860461c19d2cb12f84af3915f82efc846c79659962696de224abbd5a4.md
+wrote s3://garm/catalogue/catalogue.binpb
+published s3://garm/catalogue/catalogue.binpb
+== the tool plane
+== waiting for garmd and agentd
+ready: garmd on 7440, agentd on 7460, idp on 7451, sts on 8080
+```
+
+`mise run publish` is the interesting step and runs on its own too. It lints,
+builds and uploads — **prompts first, catalogue last**, because a catalogue
+visible before the prompt it pins is a runner that refuses an agent by name
+for a file that is about to exist. The prompt object is named by the sha256
+the annotation declares, which is why `mise run prompt-sha-check` is in CI:
+`garmd` and `agentd` both poll the catalogue object and reload on a changed
+ETag, so editing `prompts/support-assistant.md`, running `mise run
+prompt-sha` and `mise run publish` is the whole deploy.
+
+The compose has no real model in it: `agentd` is pointed at the acceptance
+test's scripted model, so a run started by hand with nothing else running
+fails at its first generation. `deploy/README.md` in `agentd` says which two
+values in `deploy/.env` point it at a real one; the commands below assume
+that, or the scripted model that `mise run e2e` starts.
+
+### Start a run as jdoe
+
+```console
+$ JDOE=$(curl -s '127.0.0.1:7451/token?user=jdoe')
+$ curl -s -X POST 127.0.0.1:7460/runs -H "Authorization: Bearer $JDOE" \
+    -H 'Content-Type: application/json' -d '{
+      "agent": "support-assistant",
+      "input": {
+        "customerId": "cust_ab12cd",
+        "request": "Please send GBP 1250.00 to the beneficiary at GB29NWBK60161331926819 for this customer, ref demo-0000000000001"
+      }
+    }'
+{"run_id":"01jb8xk2m0q7v3ry5f9d2h4n6p"}
+```
+
+`201`, and a run id. The run looks the customer up, proposes the payment, and
+stops:
+
+```console
+$ curl -s "127.0.0.1:7460/runs/01jb8xk2m0q7v3ry5f9d2h4n6p" \
+    -H "Authorization: Bearer $JDOE" | python3 -m json.tool | head -5
+{
+    "status": {
+        "runId": "01jb8xk2m0q7v3ry5f9d2h4n6p",
+        "state": "RUN_STATE_WAITING_APPROVAL",
+        "startedAt": "…"
+```
+
+Under `status` is `garm.agent.v1.RunStatus` in protojson — the same message
+`GetRun` answers through `garmd`. Beside it are `steps`, the transcript index
+(a `seq`, a `kind`, the `tool_fqn` and the `ledger_event_id` of every
+dispatch — digests, never bodies), and `tasks`.
+
+### The task is addressed to whoever qualifies, and jdoe is not it
+
+`initiate_payment` declares `approver_min_clearance: CLEARANCE_RESTRICTED` and
+`approver_compartments: ["financial"]`. Of the personas, **`sam`**
+(`payments-ops`) satisfies both. `amir` holds `financial` and is cleared only
+to `CONFIDENTIAL`, so the task is not in amir's queue and amir cannot approve
+it. `jdoe` satisfies the predicate arithmetically — jdoe holds `payments-ops`
+too — and is excluded anyway, because the run's own subject never approves its
+own task. That exclusion is the four eyes.
+
+```console
+$ SAM=$(curl -s '127.0.0.1:7451/token?user=sam')
+$ curl -s '127.0.0.1:7460/tasks?view=queue' -H "Authorization: Bearer $SAM" \
+    | python3 -m json.tool
+{
+    "tasks": [
+        {
+            "id": "01jb8xk3…",
+            "run_id": "01jb8xk2m0q7v3ry5f9d2h4n6p",
+            "tool_fqn": "payments.v1.initiate_payment",
+            "subject": "employee:jdoe",
+            "material": {
+                "amount_minor_units": "125000",
+                "beneficiary_iban": "GB29NWBK60161331926819",
+                "currency_code": "GBP"
+            },
+            "state": "open",
+            …
+        }
+    ],
+    "truncated": false
+}
+
+$ curl -s '127.0.0.1:7460/tasks?view=queue' -H "Authorization: Bearer $JDOE"
+{"tasks":[],"truncated":false}
+```
+
+`material` is what the grant binds to. Approving this authorises **this**
+payment: garmd re-extracts those three values from the request the runner
+actually sends and refuses a digest that does not match, so a runner that
+showed sam one amount and sent another is caught without the STS ever seeing
+the bank's catalogue.
+
+What sam actually reads is a card, and the card is declared in the proto too:
+
+```console
+$ TASK=tsk_…
+$ curl -s "127.0.0.1:7460/tasks/$TASK/card" -H "Authorization: Bearer $SAM" \
+    | python3 -c 'import sys,json; c=json.load(sys.stdin); print(c["title"]); print(json.dumps(c["body"][:2], indent=2))'
+Payment: GBP 125000 (minor units)
+[
+  { "facts": { "facts": [
+      { "label": "Owned by", "value": "payments-platform" },
+      { "label": "Contact",  "value": "#payments-oncall" } ] } },
+  { "facts": { "facts": [
+      { "label": "To",                   "value": "GB29NWBK60161331926819" },
+      { "label": "Amount (minor units)", "value": "125000" },
+      { "label": "Currency",             "value": "GBP" } ] } }
+]
+```
+
+The title and the three labelled facts come from the
+`(garm.card.v1.task_card)` on `InitiatePayment`; the two facts above them
+come from the `(garm.meta.v1.owner)` on `PaymentsService` — see "Owners and
+cards" above. The rest of the card is the runner's: who requested it, the
+run it belongs to, when it expires, the audit trail, a `reason` input and the
+`approve`/`decline` actions (`POST /tasks/{id}/card` is the card's form of
+the two routes below). Lint rule C1 is why the template can show only those
+three values: they are the `material_fields`, the task stores nothing else of
+the request, and so what the approver reads is exactly what the grant digest
+binds. The inbox at `http://127.0.0.1:7460/` renders the same card.
+
+Try the two who do not qualify. Neither sees the task, and neither can act on
+it — `404`, not `403`, because a task a caller may not act on is a task they
+may not learn exists:
+
+```console
+$ AMIR=$(curl -s '127.0.0.1:7451/token?user=amir')
+$ curl -s -o /dev/null -w '%{http_code}\n' -X POST "127.0.0.1:7460/tasks/$TASK/approve" \
+    -H "Authorization: Bearer $AMIR" -H 'Content-Type: application/json' -d '{"reason":"looks fine"}'
+404
+$ curl -s -o /dev/null -w '%{http_code}\n' -X POST "127.0.0.1:7460/tasks/$TASK/approve" \
+    -H "Authorization: Bearer $JDOE" -H 'Content-Type: application/json' -d '{"reason":"it is my own"}'
+404
+```
+
+### Approve, and watch it execute once
+
+```console
+$ curl -s -o /dev/null -w '%{http_code}\n' -X POST "127.0.0.1:7460/tasks/$TASK/claim" \
+    -H "Authorization: Bearer $SAM"
+204
+$ curl -s -o /dev/null -w '%{http_code}\n' -X POST "127.0.0.1:7460/tasks/$TASK/approve" \
+    -H "Authorization: Bearer $SAM" -H 'Content-Type: application/json' \
+    -d '{"reason":"verified the beneficiary by phone"}'
+204
+$ curl -s "127.0.0.1:7460/runs/01jb8xk2m0q7v3ry5f9d2h4n6p" \
+    -H "Authorization: Bearer $JDOE" | python3 -m json.tool | head -4
+{
+    "status": {
+        "runId": "01jb8xk2m0q7v3ry5f9d2h4n6p",
+        "state": "RUN_STATE_COMPLETED",
+```
+
+The task routes answer `204`: the decision is recorded, and `GET /tasks/{id}`
+says the rest — `"state": "approved"`, `"decided_by": "employee:sam"`, the
+reason, and a `grant_jti`. The identifier and never the grant: the task API
+exposes what a ledger row can be joined on, not the credential itself. A
+second approve on the same task is `409`.
+
+The grant is spent. Presenting it a second time — the same `Garm-Grant` on the
+same request — is refused with `403 {"code":"permission_denied"}` and its own
+`Garm-Event-Id`: an approval authorises one call, and a grant that could be
+spent twice would be a fifteen-minute licence to repeat a payment. A grant
+presented with one material value changed is refused the same way, and the
+approval is not burned by the attempt.
+
+### The other door
+
+The same agent is a governed tool, so `garmd` serves it like any other:
+
+```console
+$ curl -s -X POST 127.0.0.1:7440/bank.agents.v1.SupportAssistant/Invoke \
+    -H "Authorization: Bearer $JDOE" -H 'Content-Type: application/json' \
+    -d '{"customerId":"cust_ab12cd","request":"… ref demo-0000000000002"}'
+{"runId":"01jb8xm5…"}
+
+$ curl -s -X POST 127.0.0.1:7440/bank.agents.v1.SupportAssistant/GetRun \
+    -H "Authorization: Bearer $JDOE" -H 'Content-Type: application/json' \
+    -d '{"runId":"01jb8xm5…"}'
+{"runId":"01jb8xm5…","state":"RUN_STATE_RUNNING"}
+```
+
+Both answers carry `Garm-Catalogue-Digest` and `Garm-Event-Id`, because they
+are governed calls: `garmd` never reads the agent annotation. It sees two
+tools, `support_assistant` and `support_assistant_run`, and applies the same
+ten steps it applies to `get_balance`. What differs is on the ledger. Every
+tool row a run produces is at chain depth 2 — `employee:jdoe` acted for by
+`agent:support-assistant` — through either door. A run started this way also
+carries an `exec` claim naming `runner:agentd`, so each of its tool rows
+records which runner executed it; a run started through the direct door has
+no `exec`, because the human's own bearer, not a governed hop, is what
+reached the runner.
+
+### Tear it down
+
+```console
+$ mise run down
+```
+
+The volumes go with it, deliberately: Postgres holds run rows, JetStream holds
+a spent-grant cache, and "the grant was already spent" is a confusing way to
+learn that a previous demo is still lying around.
+
+### The same thing, as a test
+
+`agentd/e2e` is the acceptance test: eleven scenarios over exactly these
+routes, with a scripted model deciding each turn, from `mise run up && mise
+run e2e && mise run down` in `agentd`. It runs nightly and on demand from
+`agentd`'s `e2e` workflow (`.github/workflows/e2e.yml`), which checks this
+repository out at the tag its `examples_ref` input names — `v0.1.0` by
+default — because the catalogue it publishes and the `bankd` it builds must
+come from one tree.
 
 ## What this tree proves is still missing
 
@@ -261,7 +523,7 @@ allowlist, by catalogue FQN, is exactly two tools:
   limit (`1_000_000_000`), evaluated in the runner before the call leaves.
   The guard narrows and never widens: the tool's own validation, clearance
   and grant all still apply on top, so a run cannot propose more than
-  £5,000.00 in the account currency even though the tool itself would accept
+  5,000.00 in the account currency even though the tool itself would accept
   it, and any amount it does propose still needs the human grant
   `initiate_payment` already requires.
 
@@ -298,7 +560,8 @@ path and pins a lowercase-hex SHA-256 of its bytes with no prefix. `garm
 catalogue publish` uploads the file as `prompts/<sha256>.md`, and a runner
 fetching that object refuses to start the agent if the prompt it fetched does
 not hash to the value the catalogue declares. Nothing in this repository runs
-the publish; CI builds the catalogue and checks it mounts.
+the publish — `garm-ai/agentd`'s `mise run publish` does; CI here builds the
+catalogue and checks it mounts.
 
 That pin only protects anything while it is the hash of the file actually in
 this tree, and editing a prompt is the change nobody thinks of as a code
@@ -351,7 +614,7 @@ the run is another's. Lint rule O1 warns on any tool or agent service without
 an owner; this tree has none, so `mise run lint-bank` is silent.
 
 **`(garm.card.v1.task_card)` on `InitiatePayment`.** The one declared template
-in the bank. Its title is `Payment of {amount_minor_units} {currency_code}`
+in the bank. Its title is `Payment: {currency_code} {amount_minor_units} (minor units)`
 and its body is three facts under human labels: `beneficiary_iban` as "To",
 `amount_minor_units` as "Amount (minor units)", `currency_code` as
 "Currency". Those three are exactly the tool's `material_fields`, and that is

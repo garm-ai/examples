@@ -96,4 +96,26 @@ package's connect sibling, and that sibling imports the base package back for
 message types: a two-package cycle, unavoidable for any colocated package that
 both generates connect code and declares a tool.
 
+## bank
+
+A proto tree shaped like a real bank's — four tool domains, a shared
+taxonomy, one agent — and the answer to the question the calculator cannot
+ask: does this scale to three hundred engineers? Per-principal projection,
+the mount refusal on an ungated payment tool, what a grant binds, what a
+policy change looks like in review. `bank/README.md` is the long version.
+
+### An agent, declared like a tool
+
+`bank/proto/bank/agents/v1/support_assistant.proto` declares an agent the same
+way the other four directories declare tools: a proto service with an
+annotation, linted by `garm lint`, built into the same catalogue, reviewed on
+the same pull request. Its system prompt is `bank/prompts/support-assistant.md`
+and the annotation pins that file's sha256 — `mise run prompt-sha` recomputes
+it, `mise run prompt-sha-check` fails CI when it has drifted.
+
+Nothing in this repository runs the agent. `garm-ai/agentd` does: its compose
+file mounts this checkout, builds `bankd` from it and publishes its catalogue,
+and its acceptance test checks this repository out at a tag (`v0.1.0` today).
+See `bank/README.md`, "The agent demo, command by command".
+
 MIT licensed.
