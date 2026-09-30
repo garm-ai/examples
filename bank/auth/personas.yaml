@@ -66,6 +66,17 @@ roles:
     verbs: [READ, DESTRUCTIVE]
     tool_sets: [payments]
 
+  # The approval queue: the five garm.tasks.v1 tools carrying
+  # `sets: ["triage"]`. A role of its own so that granting it to sam and priya
+  # does not widen payments-ops and compliance-officer, which are also two
+  # agents' ceilings. claims.yaml carries the full reasoning, including why it
+  # is not enough for decide_task.
+  task-triage:
+    clearance: PUBLIC
+    compartments: []
+    verbs: [READ, WRITE]
+    tool_sets: [triage]
+
   retail-customer:
     clearance: INTERNAL
     compartments: [financial, pii-contact]
@@ -103,11 +114,15 @@ users:
     # agent that could identify a customer for an officer who could not
     # would reach further than the human it acts for. Same pair as
     # claims.yaml's compliance-team segment.
-    roles: [compliance-officer, compliance-contact]
+    # task-triage: priya works the approval queue. A role of its own, so the
+    # compliance-screen agent's ceiling is unchanged — see claims.yaml.
+    roles: [compliance-officer, compliance-contact, task-triage]
 
   sam:
     subject: "employee:sam"
-    roles: [payments-ops]
+    # task-triage for the same reason, and it leaves his payments session at
+    # READ and DESTRUCTIVE rather than adding WRITE to payments-ops.
+    roles: [payments-ops, task-triage]
 
   # The customer behind bank's own fixture data (data.go's cust_ab12cd), so a
   # token minted for her and a call against the running bank line up.

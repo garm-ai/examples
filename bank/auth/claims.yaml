@@ -117,6 +117,35 @@ roles:
     verbs: [READ, DESTRUCTIVE]
     tool_sets: [payments]
 
+  task-triage:
+    # The five tools of `garm.tasks.v1` that carry `sets: ["triage"]`:
+    # list_tasks, get_task, claim_task, release_task and triage_task. Held by
+    # sam and priya, and by no agent.
+    #
+    # A ROLE OF ITS OWN rather than `triage` added to payments-ops and
+    # compliance-officer, and the reason is the fold. Those two roles are also
+    # the ceilings of the support-assistant and compliance-screen agents
+    # (`agents:` below), so widening them would widen what those agents may
+    # reach — a change to two agents' authority made as a side effect of giving
+    # two people a queue. This grants exactly the queue, to exactly the two.
+    #
+    # PUBLIC because every method of that contract is CLEARANCE_PUBLIC; the
+    # queue's own predicate, not this clearance, is what decides which rows a
+    # viewer sees. WRITE because claiming, releasing and triaging are writes,
+    # and holding it here rather than in payments-ops keeps sam's payments
+    # session at READ and DESTRUCTIVE, which is what it was.
+    #
+    # NOT sufficient for decide_task, and that is a contract problem rather
+    # than an omission here. decide_task, create_task and approval_card
+    # declare no `sets`, and garmd's `inScope` refuses a scoped caller a tool
+    # in no set: a role naming any set reaches only tools sharing one. So the
+    # only role in this file that reaches them is retail-customer, which names
+    # no sets at all. See KNOWN-GAPS.
+    clearance: PUBLIC
+    compartments: []
+    verbs: [READ, WRITE]
+    tool_sets: [triage]
+
   retail-customer:
     # Deliberately no tool_sets: this catalogue declares no self-service set
     # yet, so a customer's own token reaches whatever it exposes at this
