@@ -114,6 +114,9 @@ include:
   - module: github.com/garm-ai/tools/web          # what it adopts
     version: v0.2.0
     packages: [web.v1]
+  - module: github.com/garm-ai/artefactd          # also what it operates
+    version: v0.1.0
+    packages: [garm.artefacts.v1]
 ```
 
 `garm catalogue build` reads the manifest, resolves each module with
@@ -128,10 +131,19 @@ now structural rather than advisory.
 **A module you pin but never call needs one line of Go.** `go mod tidy` drops a
 requirement nothing imports, and a dropped requirement makes the manifest entry
 illegal. So `bank/adopted.go` blank-imports
-`github.com/garm-ai/tools/web/gen/web/v1`: the bank never calls that package —
-`fetch_page` is invoked through the daemon over NATS — and the blank import is
-the ordinary Go idiom for a dependency you pin without calling. If you adopt a
-tool you do not link, add a line there.
+`github.com/garm-ai/tools/web/gen/web/v1` and
+`github.com/garm-ai/artefactd/gen/garm/artefacts/v1`: the bank calls neither —
+`fetch_page` and the artefact store's four tools are invoked through the daemon
+over NATS — and a blank import is the ordinary Go idiom for a dependency you pin
+without calling. If you adopt a tool you do not link, add a line there. Two
+modules are in that file now, which is the shape to expect: nothing a deployment
+*operates* is something its own Go calls.
+
+**Adopting the tools is only half of reaching them.** `garm.artefacts.v1` is
+declared here and served by `artefactd` in `garm-ai/stack`, and either half alone
+is a plane where nothing works: a catalogue entry with no service is a `503`, and
+a service with no catalogue entry is garmd's `not_found` — which is the state
+`garm.tasks.v1` sat in for three releases. The two land in one change.
 
 **Two things stayed copies, for two different reasons.**
 
@@ -143,7 +155,8 @@ tool you do not link, add a line there.
 **The rule for a platform proto is still what the file declares, not which
 module it came from.** Declares tools → an input, which now means a
 `catalogue.yaml` entry rather than a copy: that is how `garm/tasks/v1`'s eight
-tools reach this catalogue, and why `bank/proto/garm/` no longer exists. Defines
+tools and `garm.artefacts.v1`'s four reach this catalogue, and why
+`bank/proto/garm/` no longer exists. Defines
 annotations only → `third_party`, uncopied and ungated by nothing else.
 
 ## Why this repository is the acceptance test
@@ -197,15 +210,17 @@ both generates connect code and declares a tool.
 ## bank
 
 A proto tree shaped like a real bank's — four tool domains, a shared
-taxonomy, five agents, two adopted packages — and the answer to the question
+taxonomy, five agents, three adopted packages — and the answer to the question
 the calculator cannot ask: does this scale to three hundred engineers?
 Per-principal projection, the mount refusal on an ungated payment tool, what a
 grant binds, what a policy change looks like in review. Its catalogue is
-twenty-seven tools in seven packages, and two of those packages are composed out
+thirty-one tools in eight packages, and three of those packages are composed out
 of Go modules rather than written here: `garm.tasks.v1` from
-`github.com/garm-ai/contracts`, so the queue `tasksd` serves is reachable at all,
-and `web.v1` from `github.com/garm-ai/tools/web`, so the research assistant has a
-page to fetch. `bank/README.md` is the long version.
+`github.com/garm-ai/contracts`, so the queue `tasksd` serves is reachable at all;
+`web.v1` from `github.com/garm-ai/tools/web`, so the research assistant has a
+page to fetch; and `garm.artefacts.v1` from `github.com/garm-ai/artefactd`, so a
+tool that generates a document has somewhere to put it and a person has a
+governed way to be given one. `bank/README.md` is the long version.
 
 ### An agent, declared like a tool
 

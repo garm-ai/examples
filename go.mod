@@ -17,9 +17,12 @@ require (
 )
 
 require (
+	github.com/garm-ai/artefactd v0.1.0
 	github.com/garm-ai/tools/taxonomy v0.2.0
 	github.com/garm-ai/tools/web v0.2.0
 )
+
+require gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 
 require (
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect

@@ -70,6 +70,32 @@ include:
     version: v0.2.0
     packages: [web.v1]
 
+  # The artefact store's four tools, served by artefactd. A generated document
+  # cannot be returned through a tool call — the daemon projects an answer field
+  # by field and cannot see inside an .xlsx, and the bytes would cross the
+  # request bus everything else depends on — so the bank adopts the store the
+  # same way it adopts the task queue: a platform contract it OPERATES, and
+  # therefore an input.
+  #
+  # The `artefacts` tool set comes with the package, which is why adopting it
+  # costs no line in bank/proto/bank/v1/taxonomy.proto. Its four tools declare
+  # `sets: ["artefacts"]` and the contract declares that set itself, so the
+  # catalogue's vocabulary grows from the module rather than from this tree.
+  # That is the opposite of tools/taxonomy, whose names this tree's own protos
+  # reach and which therefore cannot leave bank/proto — see the note above.
+  #
+  # NO ROLE CARRIES `artefacts`, and that is deliberate rather than unfinished.
+  # Who may name, describe or read a generated document is a decision about
+  # disclosure, and adopting a contract must not make it for anybody — the same
+  # ruling `garm.tasks.v1` got when `triage` arrived. bank/README.md says so.
+  #
+  # Like web.v1 above, nothing here calls this module's Go — the four tools are
+  # invoked through the daemon over NATS — so the requirement that makes this
+  # entry legal at all is an explicit blank import. See bank/adopted.go.
+  - module: github.com/garm-ai/artefactd
+    version: v0.1.0
+    packages: [garm.artefacts.v1]
+
 # Where an agent's prompts.*.path resolves from. The bank's five prompts are
 # bank/prompts/*.md, and lint rule A2 verifies each against the sha256 its
 # annotation pins — so a manifest pointing at the wrong root fails the build

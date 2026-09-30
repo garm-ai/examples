@@ -1,8 +1,8 @@
 # bank
 
 A proto tree shaped like a real bank's: four domains, eight tools, one shared
-taxonomy, five agents, two adopted packages — one public tool and one platform
-service — and a deliberate demonstration of what happens when you put all of
+taxonomy, five agents, three adopted packages — one public tool and two platform
+services — and a deliberate demonstration of what happens when you put all of
 that in one catalogue.
 
 It exists to answer a question the calculator cannot: **does this scale to
@@ -23,10 +23,12 @@ proto/
                     naming a set it cannot see; "The one copy left" says why
 
 ../catalogue.yaml   COMPOSED, not copied: garm.tasks.v1 out of
-                    github.com/garm-ai/contracts and web.v1 out of
-                    github.com/garm-ai/tools/web, each at the version this
+                    github.com/garm-ai/contracts, web.v1 out of
+                    github.com/garm-ai/tools/web and garm.artefacts.v1 out of
+                    github.com/garm-ai/artefactd, each at the version this
                     tree's go.mod resolves
-adopted.go          the blank import that keeps tools/web a real requirement
+adopted.go          the two blank imports that keep tools/web and artefactd
+                    real requirements
 ```
 
 Two directories that used to sit in `proto/` — `web/v1` and `garm/tasks/v1` —
@@ -97,13 +99,17 @@ anything undeclared is refused at mount, which makes that file the bank's
 allowlist rather than documentation of one. Adoption has added two more
 declaring files. `tools/taxonomy/v1/taxonomy.proto`, adopted from
 `garm-ai/tools` with the names its tools use (`internet`,
-`generated-artefacts`; `research`, `documents`). And
-`garm/tasks/v1/tasks.proto`, composed in from `garm-ai/contracts`, which
-declares no compartment at all and exactly one tool set, `triage` — the set an
-agent's manifest lists if it may work a queue without deciding anything on it.
-The catalogue merges identical declarations of one name and refuses different
-ones (L29), and today the three files share none: the compartment count is still
-seven and the tool sets six.
+`generated-artefacts`; `research`, `documents`). `garm/tasks/v1/tasks.proto`,
+composed in from `garm-ai/contracts`, which declares no compartment at all and
+exactly one tool set, `triage` — the set an agent's manifest lists if it may work
+a queue without deciding anything on it. And
+`garm/artefacts/v1/artefacts.proto`, composed in from `garm-ai/artefactd`, which
+also declares no compartment and one tool set, `artefacts`. **A contract that
+declares the set its own tools name costs its adopter nothing**, which is the
+difference between these two and the taxonomy above: the taxonomy exists because
+*this tree's* protos name its words. The catalogue merges identical declarations
+of one name and refuses different ones (L29), and today the four files share
+none: the compartment count is still seven and the tool sets are seven.
 
 Each domain imports it even though it references no symbol from it. That is
 not tidiness — without the import the taxonomy is not in the domain's
@@ -654,10 +660,11 @@ change — so two things keep it honest:
 `GetRun` as two ordinary governed tools and never reads the
 `(garm.agent.v1.agent)` annotation at all — it is agent-blind by design, so a
 change to what an agent runs as can never affect what garmd itself decides to
-serve. `mise run check-bank` builds the full twenty-seven-tool catalogue (the
+serve. `mise run check-bank` builds the full thirty-one-tool catalogue (the
 eight tools the bank already had, `web.v1.fetch_page` adopted from
 `garm-ai/tools`, the eight of `garm.tasks.v1` adopted from
-`garm-ai/contracts`, plus `Invoke` and `GetRun` for each of the five agents)
+`garm-ai/contracts`, the four of `garm.artefacts.v1` adopted from
+`garm-ai/artefactd`, plus `Invoke` and `GetRun` for each of the five agents)
 and asserts only that adding the agents does not make the bank unmountable. It says nothing about whether an agent runner exists to
 serve `SupportAssistant` — nothing in this repository implements it, and the
 generated `SupportAssistantHandler` interface in
@@ -747,13 +754,15 @@ own `webd`, run beside `bankd` by the deployment, with the host allowlist in its
 policy file.
 
 **A module this tree pins and never calls needs one line of Go.** `adopted.go`
-blank-imports `github.com/garm-ai/tools/web/gen/web/v1`, and it is not
-decoration: nothing here calls that package — `fetch_page` goes through the
-daemon over NATS — so `go mod tidy` would drop the requirement, and a dropped
-requirement makes the manifest entry illegal. A blank import is the ordinary Go
-idiom for a dependency you pin without calling. The adopted taxonomy needs no
-line, because a proto in this tree still imports it and the generated code
-carries one.
+blank-imports `github.com/garm-ai/tools/web/gen/web/v1` and
+`github.com/garm-ai/artefactd/gen/garm/artefacts/v1`, and neither is decoration:
+nothing here calls either package — `fetch_page` and the artefact store's four
+tools go through the daemon over NATS — so `go mod tidy` would drop the
+requirements, and a dropped requirement makes the manifest entry illegal. A blank
+import is the ordinary Go idiom for a dependency you pin without calling. The
+adopted taxonomy needs no line, because a proto in this tree still imports it and
+the generated code carries one. **Expect that file to grow**: nothing a
+deployment merely operates is something its own Go calls.
 
 **An adopted package's tag is part of the contract migration, and now the build
 enforces it.** `web` and `taxonomy` both moved to `v0.2.0` when the contracts
@@ -946,6 +955,76 @@ arriving back over NATS through the daemon. Before adoption both were garmd's
 invalid_argument` on an empty request and as `jdoe` answers garmd's `not_found`,
 which is the set doing its work on either side.
 
+## The second platform service adopted: `garm.artefacts.v1`
+
+A tool that generates a document **cannot return it**. The daemon projects an
+answer field by field against the caller's clearance and it cannot see inside an
+`.xlsx`, so a spreadsheet is disclosed whole or not at all; and the bytes cannot
+travel through a tool call either, because they would cross the request bus every
+other tool depends on. So a generated document needs a store, and the bank adopts
+one the same way it adopted the queue — four lines in `../catalogue.yaml` naming
+`garm.artefacts.v1` out of `github.com/garm-ai/artefactd@v0.1.0`, plus a blank
+import in `adopted.go` because nothing here calls that module's Go.
+
+`begin_write` names an artefact and returns its id and a presigned PUT;
+`commit` records the digest and the size once the bytes are written; `describe`
+says what an artefact is without saying how to get it; `read_url` mints a
+short-lived URL **for a person** and writes a disclosure row before the URL
+exists. The service never handles a byte.
+
+**What it costs the catalogue.** Four tools and the eight card endpoints
+synthesised for them, so the bank goes from twenty-seven tools in seven packages
+to **thirty-one in eight**, and from forty-three synthesised card endpoints to
+fifty-one. Documented fields go from thirty-six to fifty-four, which is the
+adopted file rather than anything here: `artefacts.proto` documents its fields
+where `tasks.proto` documented none. Compartments stay at seven — the file
+declares none, and `generated-artefacts` was already in this catalogue, from the
+adopted taxonomy. **Tool sets go from six to seven**, gaining `artefacts`, and
+that one comes with the package: the contract declares the set it uses, so
+adopting it costs no line in `proto/bank/v1/taxonomy.proto`. Lint adds no
+finding; the one `O1` warning is still `web.v1.WebService`'s missing owner.
+
+**Every method is `CLEARANCE_PUBLIC` and `MODE_NONE` at the method gate**, for
+the reason `garm.tasks.v1` is: which artefact a viewer may read is decided **per
+artefact**, by the label on the `garm.card.v1.Card` that `read_url` returns and
+the daemon's walk of it at step 8. A method-level clearance would have to be the
+lowest any artefact in the deployment carries, which is no gate. `read_url` also
+declares `audit: { level: LEVEL_AUDIT, fail_closed: true, retain_days: 2555 }` —
+the same seven years `decide_task` and `initiate_payment` declare, taken from
+them rather than chosen — so a deployment with no audit sink does not mount this
+catalogue at all.
+
+**No role carries the `artefacts` set, and that is a decision nobody has made.**
+All four tools declare `sets: ["artefacts"]`, every staff role in `auth/` names a
+set, and none of those sets is `artefacts` — so `jdoe`, `amir`, `priya` and `sam`
+see none of the four and only `ada`, whose `retail-customer` role names no set at
+all, lists any. Granting the set is a decision about who may name, describe or
+read a generated document, exactly as granting `triage` was a decision about who
+triages a task, and adopting a contract must not make it for anybody. Nobody
+holds the `generated-artefacts` compartment either, so a `read_url` that reached
+the service would come back as an id with its card withheld.
+
+Against the `garm-ai/stack` plane (`ListTools`, dev IdP personas):
+
+| persona | what it sees of `garm.artefacts.v1` |
+| --- | --- |
+| `ada` | `describe` in the default listing; `describe` and `read_url` when the client asks for the `PERSON` audience. |
+| `jdoe`, `amir`, `priya`, `sam` | **nothing**, at any audience. Every role they hold names a tool set and none is `artefacts`. |
+| anybody | **never `begin_write` or `commit`.** Both declare `AUDIENCE_RUNNER`, which keeps them out of a person's and a model's listing, and both are `VERB_WRITE`, which no principal reaching the `artefacts` set holds. |
+
+**And the audience is a listing rule, not a gate** — which this plane shows in
+one pair of calls. The `concierge` agent acting for `ada` is not offered
+`read_url` and can still call it; what refuses it is the service's own check on a
+delegated caller, `403 tool_refused`, where the same caller's `describe` gets a
+plain `404`. A tool relying on its audience to keep a caller out has no gate at
+all.
+
+**Reachability is proved.** `Describe` for a well-formed id that does not exist
+answers `404 tool_refused` — *the tool* found nothing, artefactd's own answer
+arriving back over NATS — where the same call as `sam` is garmd's own `not_found`
+and a method no catalogue declares is `unimplemented`. Three distinguishable
+answers.
+
 ## Owners and cards
 
 Every service in this tree names who is answerable for it, and the payment
@@ -955,7 +1034,7 @@ v0.15.0, vendored beside the others by `mise run vendor-annotations`
 whose annotations are byte-identical to `v0.3.0`'s — only
 `garm/tasks/v1/tasks.proto` moved), and neither is policy: `garmd` never reads them, its catalogue
 version check ignores both namespaces, and `mise run check-bank` still
-mounts all twenty-seven tools on the pinned daemon.
+mounts all thirty-one tools on the pinned daemon.
 The agent runner reads them from the catalogue and puts them on every card
 the inbox renders.
 
