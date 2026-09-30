@@ -118,9 +118,10 @@ roles:
     tool_sets: [payments]
 
   task-triage:
-    # The five tools of `garm.tasks.v1` that carry `sets: ["triage"]`:
-    # list_tasks, get_task, claim_task, release_task and triage_task. Held by
-    # sam and priya, and by no agent.
+    # The seven tools of `garm.tasks.v1` that carry `sets: ["triage"]`:
+    # list_tasks, get_task, claim_task, release_task, triage_task, and — since
+    # contracts v0.5.0 — decide_task and approval_card. Held by sam and priya,
+    # and by no agent.
     #
     # A ROLE OF ITS OWN rather than `triage` added to payments-ops and
     # compliance-officer, and the reason is the fold. Those two roles are also
@@ -135,12 +136,18 @@ roles:
     # and holding it here rather than in payments-ops keeps sam's payments
     # session at READ and DESTRUCTIVE, which is what it was.
     #
-    # NOT sufficient for decide_task, and that is a contract problem rather
-    # than an omission here. decide_task, create_task and approval_card
-    # declare no `sets`, and garmd's `inScope` refuses a scoped caller a tool
-    # in no set: a role naming any set reaches only tools sharing one. So the
-    # only role in this file that reaches them is retail-customer, which names
-    # no sets at all. See KNOWN-GAPS.
+    # IT IS NOW SUFFICIENT FOR decide_task, AND IT WAS NOT WHEN IT WAS WRITTEN.
+    # decide_task and approval_card declared no `sets` at contracts v0.3.0, and
+    # garmd's `inScope` refuses a scoped caller a tool in no set — a role naming
+    # any set reaches only tools sharing one — so this role bought sam and priya
+    # a queue they could look at and decide nothing on, and the only role here
+    # that reached the decision was retail-customer, which names no sets at all.
+    # contracts v0.5.0 put both methods in `triage`, this tree requires v0.5.0,
+    # and sam and priya reach both. Verified on the plane: DecideTask as sam gets
+    # as far as request validation, and as jdoe it is still garmd's not_found.
+    #
+    # create_task remains set-less and therefore unscoped-only, which is right:
+    # it is AUDIENCE_RUNNER, a tool the runner calls and a person does not.
     clearance: PUBLIC
     compartments: []
     verbs: [READ, WRITE]

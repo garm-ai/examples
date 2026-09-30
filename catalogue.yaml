@@ -1,0 +1,77 @@
+# What composes into the bank's catalogue.
+#
+# `garm catalogue build` reads this file and needs no --proto. Every input is
+# either a directory in this tree or proto packages taken from a Go module the
+# tree requires, and the difference is only where the bytes live: the bank's
+# own declarations are one input among the others rather than a privileged
+# flag. Adopting a tool is now an entry here; it used to be a copy of somebody
+# else's proto tree into bank/proto, an exclude_paths line keeping its Go from
+# being generated twice, and a byte-comparison gate watching the copy.
+#
+# THIS FILE NAMES WHAT, go.mod SAYS WHICH VERSION. A module go.mod does not
+# require is refused, and the `version:` keys below are readability the build
+# checks against the module graph rather than a second pin that could disagree
+# with it. That is the invariant a copy could not hold: a tree carrying its own
+# copy of an adopted proto can compile against one descriptor set and declare
+# another, which is the descriptor mismatch that took every agent in the plane
+# offline on the morning of 2026-09-29.
+#
+# WHY IT IS HERE AND NOT IN bank/. `garm catalogue build` resolves module
+# versions with `go list -m` run in the manifest's own directory, and refuses
+# outright when that directory has no go.mod — so a manifest with module
+# entries has to sit beside the go.mod whose requirements pin it. This
+# repository is one Go module with two examples in it, so the bank's manifest
+# lives at the root and names bank/ in its paths. The calculator's sits in
+# calculator/ because it declares no modules and therefore needs no module
+# graph. Both readings are right; the asymmetry is the CLI's, recorded in
+# garm-ai/stack's KNOWN-GAPS, and it goes away either when the CLI walks up to
+# the module root or when each example becomes a module of its own.
+schema: v1
+name: bank
+source: garm-ai/examples/bank
+
+include:
+  # The bank's own declarations: accounts, cards, payments, screening, its
+  # taxonomy and its five agents. Nothing adopted lives here any more.
+  - path: bank/proto
+
+  # The task queue's eight tools, served by tasksd. A platform contract the
+  # bank OPERATES, so it is an input; garm/tool/v1, garm/agent/v1,
+  # garm/card/v1 and garm/meta/v1 come out of the same module at the same
+  # version and are NOT, because they declare no tools and exist only so this
+  # tree's protos can import them. The rule is what the file declares, not
+  # which module it came from, and bank/third_party/proto is the other half of
+  # it.
+  - module: github.com/garm-ai/contracts
+    version: v0.5.0
+    packages: [garm.tasks.v1]
+
+  # The web fetcher the research assistant calls. This module has no Go the
+  # bank calls — fetch_page is invoked through the daemon over NATS, never in
+  # process — so the requirement that makes this entry legal at all is an
+  # explicit blank import. See bank/adopted.go, which says why it exists.
+  #
+  # web/v0.2.0 rather than anything older because a tag from before the split
+  # carries github.com/garm-ai/garm/contracts and would register garm/tool/v1 a
+  # second time. That used to be advisory prose in bank/buf.gen.yaml and is now
+  # structural: go.mod resolves the version and the build refuses a
+  # disagreement.
+  #
+  # NOT HERE, AND IT IS THE ONE THING THIS MIGRATION COULD NOT FINISH:
+  # github.com/garm-ai/tools/taxonomy. Its four compartment and tool-set names
+  # are four of this catalogue's seven and two of its six, and the builder would
+  # be perfectly happy to read them out of the module — but lint rule L20
+  # refuses an undeclared tool set as an error inside the protoc plugin, which
+  # buf runs over ONE DIRECTORY, so the file declaring `research` has to stay in
+  # bank/proto for `buf generate` to succeed. Declaring it here as well would be
+  # two sources for one proto package, which the builder refuses and should.
+  # bank/buf.gen.yaml carries the long version.
+  - module: github.com/garm-ai/tools/web
+    version: v0.2.0
+    packages: [web.v1]
+
+# Where an agent's prompts.*.path resolves from. The bank's five prompts are
+# bank/prompts/*.md, and lint rule A2 verifies each against the sha256 its
+# annotation pins — so a manifest pointing at the wrong root fails the build
+# rather than publishing an unverified prompt.
+prompts: bank

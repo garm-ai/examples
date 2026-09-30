@@ -3,11 +3,18 @@
 //
 // The first agent in this tree that reaches OUTSIDE the tenant, through a
 // tool the bank did not write: `web.v1.fetch_page` from
-// github.com/garm-ai/tools/web, adopted by copying its proto tree (and the
-// taxonomy it names) into proto/. What comes back from that tool was written
-// by whoever runs the fetched site, so the page text arrives wrapped as
-// untrusted content and the prompt treats it as data about the page, never
-// as a message to the model.
+// github.com/garm-ai/tools/web, adopted by naming its proto package in
+// catalogue.yaml at the version go.mod pins. What comes back from that tool
+// was written by whoever runs the fetched site, so the page text arrives
+// wrapped as untrusted content and the prompt treats it as data about the
+// page, never as a message to the model.
+//
+// It still imports the adopted taxonomy, and that import is the one reason
+// proto/tools/ is still a copy rather than a catalogue.yaml entry: `sets:
+// ["research"]` below is a word tools/taxonomy declares, and lint rule L20
+// refuses an undeclared tool set as an ERROR in the protoc plugin, which buf
+// runs over one directory and which therefore has to find the declaration
+// inside this tree. See this tree's buf.gen.yaml.
 //
 // Same two annotations as support_assistant.proto, answering the same two
 // questions: (garm.agent.v1.agent) is what this agent RUNS AS, and

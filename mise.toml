@@ -26,29 +26,27 @@ description = "Refresh every vendored platform proto from the pinned contract mo
 # module it compiles against; the version below is the only pin there is, so
 # it moves in the same commit as go.mod's.
 #
-# TWO DESTINATIONS, and which one a file goes to is decided by what the file
-# DECLARES rather than by which module it came from — both come from
-# github.com/garm-ai/contracts:
+# ANNOTATIONS ONLY, and that is the whole of what vendoring is for now.
+# garm/tool/v1, garm/agent/v1, garm/card/v1 and garm/meta/v1 go to
+# <tree>/third_party/proto/garm/... because this tree's own .proto files have to
+# `import` them by their real path, and no toolchain will resolve an import out
+# of a Go module for you. They declare no tools, so third_party/proto is
+# deliberately NOT an input to `garm catalogue build` — feeding it in would add
+# files to the descriptor set and nothing to the catalogue — and §2's
+# one-version invariant does not reach them. They are the case a manifest cannot
+# replace, so they stay, and `vendor-check` below stays with them.
 #
-#   annotations -> <tree>/third_party/proto/garm/...
-#     garm/tool/v1, garm/agent/v1, garm/card/v1, garm/meta/v1. This tree's
-#     protos import them; they declare no tools, so third_party/proto is
-#     deliberately NOT an input to `garm catalogue build` — feeding it in
-#     would add files to the descriptor set and nothing to the catalogue.
-#
-#   a proto that declares tools -> bank/proto/garm/...
-#     garm/tasks/v1/tasks.proto, the eight tools tasksd serves. It has to be
-#     an INPUT: the catalogue is built from one proto tree, and a catalogue
-#     that does not declare garm.tasks.v1 gives garmd nothing to dispatch to
-#     subjects that are already being served. Its Go is excluded from
-#     generation in bank/buf.gen.yaml and comes from the module, for the same
-#     registry-collision reason the annotations' does.
-#
-# Both destinations are the same drift risk, so `vendor-check` below covers
-# both. Neither is a copy anyone edits: the bytes are the module's bytes.
+# THIS TASK USED TO COPY garm/tasks/v1/tasks.proto INTO bank/proto TOO, and
+# catalogue.yaml is why it no longer does: a proto that DECLARES TOOLS is an
+# input to the builder, the builder now reads an input out of the module cache
+# at the version go.mod pins, and a copy of a published file is a thing that
+# goes stale the moment the publisher moves. The distinction the long comment
+# here used to draw — what the file DECLARES, not which module it came from —
+# still decides which protos this task touches; it just no longer has two
+# destinations to decide between.
 run = """
 set -e
-VERSION=v0.3.0
+VERSION=v0.5.0
 go mod download github.com/garm-ai/contracts@$VERSION
 SRC="$(go env GOMODCACHE)/github.com/garm-ai/contracts@$VERSION/proto/garm"
 copy() {
@@ -62,7 +60,6 @@ copy() {
 }
 copy bank/third_party/proto tool/v1/tool.proto agent/v1/agent.proto card/v1/card.proto meta/v1/meta.proto
 copy calculator/third_party/proto tool/v1/tool.proto
-copy bank/proto tasks/v1/tasks.proto
 """
 
 [tasks."vendor-check"]
@@ -73,16 +70,21 @@ description = "Fail if a vendored platform proto has drifted from the contract m
 # and a catalogue built from a vocabulary nobody is looking at. The bytes are
 # written verbatim, so the check is a byte comparison.
 #
-# bank/proto/garm is in the path list for exactly the same reason the two
-# third_party trees are, and leaving it out would make the adopted tasks proto
-# the one uncovered copy in the repository — the worse case of the two, because
-# a drifted annotation only costs a rule nobody applies, while a drifted
-# garm/tasks/v1 means this catalogue declares a shape of the task tools that
-# the tasksd serving them no longer has.
+# bank/proto/garm was in this list until catalogue.yaml replaced the copy of
+# garm/tasks/v1 with a module entry, and the gate went with the copy it was
+# watching: there is nothing left to drift when the builder reads the bytes out
+# of the module cache at the version go.mod resolves. What remains is the two
+# annotation trees, which are copies a manifest cannot replace.
+#
+# proto/tools/taxonomy is a copy this gate does NOT cover and never did, and
+# that is worth knowing rather than inferring: it is the one adopted package
+# still in the tree (bank/buf.gen.yaml says why) and nothing compares it to
+# github.com/garm-ai/tools/taxonomy@v0.2.0. Adding it here would buy a gate that
+# §7 is about to delete along with the copy; the honest note is cheaper.
 run = """
 set -e
 mise run vendor-annotations > /dev/null
-PATHS="bank/third_party calculator/third_party bank/proto/garm"
+PATHS="bank/third_party calculator/third_party"
 if ! git diff --quiet -- $PATHS; then
   echo "a vendored platform proto has drifted from the pinned contract module —" >&2
   echo "run 'mise run vendor-annotations', re-run 'mise run gen', and commit:" >&2
@@ -112,7 +114,7 @@ description = "Install the tool generator at the pinned version"
 # agent services share one Go package and got five `DefaultInputCard`s.
 # v0.19.0 qualifies the Go identifier with the service name always, and
 # leaves the RPC and catalogue names alone.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.19.0"
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.20.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -144,7 +146,7 @@ description = "Install the garm CLI at the pinned version"
 # after the split: it reads the annotations it vendors and lints against out
 # of github.com/garm-ai/contracts, so the rules it applies are the ones the
 # pinned contract module actually declares — A9, A10 and C8 among them.
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.19.0"
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.20.0"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
@@ -227,7 +229,6 @@ garmd check --catalogue bank.binpb --with-grants --audit-retention 61320h
 
 [tasks."diff-bank"]
 description = "Report how this branch moves the bank's policy, against a base ref"
-dir = "bank"
 depends = ["cli"]
 # BASE defaults to main. In CI it is the pull request's base, so the report is
 # "what does merging this change", which is the only framing a reviewer can act
@@ -246,25 +247,67 @@ trap 'rm -rf "$WORK"' EXIT
 # The base catalogue is built from a clean worktree of the base ref rather
 # than from a stash: a stash leaves generated output and build artifacts
 # behind, and the digest would then depend on what happened to be lying around.
+#
+# A worktree is also what makes the base's own manifest usable: the module
+# versions an entry resolves to are that ref's go.mod's, which is the whole
+# point of the invariant and would be lost by building the base ref's protos
+# against this one's requirements. The --proto fallback is for a base ref older
+# than the manifest and is dead code the day main carries one.
 git worktree add --detach --quiet "$WORK/base" "$BASE"
-garm catalogue build --proto "$WORK/base/bank/proto" -o "$WORK/base.binpb"
+if [ -f "$WORK/base/catalogue.yaml" ]; then
+  (cd "$WORK/base" && garm catalogue build -o "$WORK/base.binpb")
+else
+  garm catalogue build --proto "$WORK/base/bank/proto" -o "$WORK/base.binpb"
+fi
 git worktree remove --force "$WORK/base"
 
-garm catalogue build --proto proto -o "$WORK/head.binpb"
+garm catalogue build -o "$WORK/head.binpb"
 garm catalogue diff "$WORK/base.binpb" "$WORK/head.binpb"
 """
 
 [tasks.lint-bank]
-description = "Lint the bank tool declarations"
-dir = "bank"
+description = "Lint the bank tool declarations, over the whole composed catalogue"
 depends = ["cli"]
-run = "garm lint --proto proto"
+# NOT `garm lint --proto proto` any more, and the reason is the migration this
+# repository has just done rather than a preference.
+#
+# `garm lint` at v0.20.0 takes ONE DIRECTORY. The bank's catalogue is composed
+# from three inputs — bank/proto, garm.tasks.v1 out of the contract module and
+# web.v1 out of github.com/garm-ai/tools/web — so there is no single directory
+# that contains it, and linting bank/proto alone does not merely see less: it is
+# WRONG. Rule A3 resolves an agent's allowlist against the catalogue the agent
+# is published in, the research assistant names `web.v1.fetch_page`, and a lint
+# of bank/proto refuses that agent because the tool it names is not in the
+# directory. Proved by running it.
+#
+# `garm catalogue build` lints the assembled set and refuses on any error
+# before it writes anything, so composing IS linting and this task is the lint
+# with the artifact thrown away. The one warning it reports is O1 on
+# web.v1.WebService, which is the adopted package's to fix and not this tree's.
+#
+# A manifest-aware `garm lint` is coming; when it lands this becomes
+# `garm lint` with no flags and the temporary file goes away.
+run = """
+set -e
+OUT=$(mktemp -d)
+trap 'rm -rf "$OUT"' EXIT
+garm catalogue build -o "$OUT/lint.binpb"
+"""
 
 [tasks.catalogue-bank]
 description = "Build the bank catalogue"
-dir = "bank"
 depends = ["cli"]
-run = "garm catalogue build --proto proto -o bank.binpb --source garm-ai/examples/bank"
+# No --proto and no --source: catalogue.yaml carries both, and it is at the
+# repository root rather than in bank/ because `garm catalogue build` resolves
+# module versions with `go list -m` run in the manifest's own directory and
+# refuses a directory with no go.mod. One Go module, two examples, so the bank's
+# manifest sits beside the go.mod that pins it. catalogue.yaml says all of this
+# where somebody editing it will read it.
+#
+# The artifact still lands in bank/, because `check-bank` and `garmd` are given
+# it by path and the bank's own directory is where a reader looks for the bank's
+# catalogue.
+run = "garm catalogue build -o bank/bank.binpb"
 
 [tasks."claims-check-bank"]
 description = "Assert the bank claims policies only reference compartments and tool sets the catalogue declares"
@@ -340,7 +383,10 @@ fi
 description = "Build the calculator catalogue"
 dir = "calculator"
 depends = ["cli"]
-run = "garm catalogue build -o calculator.binpb --source garm-ai/examples/calculator"
+# calculator/catalogue.yaml carries the path entry and the source. Its manifest
+# can live in its own directory, unlike the bank's, because it declares no
+# modules and therefore needs no module graph to resolve them against.
+run = "garm catalogue build -o calculator.binpb"
 
 [tasks.serve]
 description = "Run calcd against a local NATS"

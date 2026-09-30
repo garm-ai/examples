@@ -17,16 +17,24 @@ proto/
   payments/v1/      moving money
   screening/v1/     sanctions and PEP screening
 
-  web/v1/           ADOPTED, github.com/garm-ai/tools/web — fetch_page
-  tools/taxonomy/v1/  ADOPTED, the compartments and sets that package names
-  garm/tasks/v1/    ADOPTED, github.com/garm-ai/contracts — the eight task
-                    tools tasksd serves. A platform proto, and in the input
-                    tree rather than third_party/ because it DECLARES TOOLS
+  tools/taxonomy/v1/  ADOPTED and still a copy, alone now — the compartments
+                    and sets github.com/garm-ai/tools names. It is here because
+                    the protoc plugin sees ONE DIRECTORY and refuses a tool
+                    naming a set it cannot see; "The one copy left" says why
+
+../catalogue.yaml   COMPOSED, not copied: garm.tasks.v1 out of
+                    github.com/garm-ai/contracts and web.v1 out of
+                    github.com/garm-ai/tools/web, each at the version this
+                    tree's go.mod resolves
+adopted.go          the blank import that keeps tools/web a real requirement
 ```
 
-The three adopted directories are copied verbatim from a module cache and
-excluded from generation in `buf.gen.yaml`; see "Adopting a platform proto"
-below for the rule that decides where a copy goes.
+Two directories that used to sit in `proto/` — `web/v1` and `garm/tasks/v1` —
+are gone. They were verbatim copies out of a module cache, held out of Go
+generation by `exclude_paths`, because `garm catalogue build --proto proto` read
+one directory and anything the catalogue declared had to be in it. The builder
+now reads them out of the module cache at the version `go.mod` pins. See
+"Adopting a tool is an entry in the manifest".
 
 ## What each domain is here to teach
 
@@ -87,15 +95,15 @@ boundary is the directory; buf does not have to agree for it to be real.
 `bank/v1/taxonomy.proto` declares the compartments. A compartment naming
 anything undeclared is refused at mount, which makes that file the bank's
 allowlist rather than documentation of one. Adoption has added two more
-declaring files. `tools/taxonomy/v1/taxonomy.proto`, copied from
+declaring files. `tools/taxonomy/v1/taxonomy.proto`, adopted from
 `garm-ai/tools` with the names its tools use (`internet`,
 `generated-artefacts`; `research`, `documents`). And
-`garm/tasks/v1/tasks.proto`, copied from `garm-ai/contracts`, which declares
-no compartment at all and exactly one tool set, `triage` — the set an agent's
-manifest lists if it may work a queue without deciding anything on it. The
-catalogue merges identical declarations of one name and refuses different ones
-(L29), and today the three files share none: the compartment count is still
-seven.
+`garm/tasks/v1/tasks.proto`, composed in from `garm-ai/contracts`, which
+declares no compartment at all and exactly one tool set, `triage` — the set an
+agent's manifest lists if it may work a queue without deciding anything on it.
+The catalogue merges identical declarations of one name and refuses different
+ones (L29), and today the three files share none: the compartment count is still
+seven and the tool sets six.
 
 Each domain imports it even though it references no symbol from it. That is
 not tidiness — without the import the taxonomy is not in the domain's
@@ -103,6 +111,22 @@ dependency graph, and any tool working on a subset of files cannot see the
 declarations. `buf generate` fails exactly that way. A domain that uses a
 compartment name *depends on* the file declaring that name, and the import
 graph should say so.
+
+**And that sentence is why `proto/tools/` is the one adopted directory still
+copied into this tree.** `garm catalogue build` composes the whole catalogue and
+would read the taxonomy out of `github.com/garm-ai/tools/taxonomy` perfectly
+happily. The protoc plugin is the problem: buf runs it over one directory, lint
+rule L20 refuses a tool that names an undeclared tool set as an **error** rather
+than degrading to a warning on a partial set the way A3 does, and
+`research_assistant.proto` names `research`. So the file declaring `research` has
+to be inside the tree buf compiles. Proved by deleting it: `garm catalogue build`
+was content and `mise run gen` failed on two L20 errors.
+
+It goes away by either route — a deployment declaring its own vocabulary in
+`catalogue.yaml`, which also removes the import that reaches it, or L20 joining
+A3 in the group the plugin warns on instead of refusing. Until then it is a copy
+nothing gates, which is worth knowing rather than inferring; `mise.toml` says so
+where `vendor-check` is defined.
 
 ## The claim, demonstrated
 
@@ -486,14 +510,16 @@ three hundred engineers and a hundred deploys a day, that is not a thought
 experiment.
 
 **And slicing does not work yet.** The obvious fix is a catalogue per domain,
-but `garm catalogue build --proto proto/accounts` fails: the taxonomy lives in
-`proto/bank` and a directory slice loses it, so every compartment reads as
-undeclared.
+but a manifest whose one `path:` entry is `bank/proto/accounts` fails the same
+way `--proto proto/accounts` always did: the taxonomy lives in `proto/bank` and a
+directory slice loses it, so every compartment reads as undeclared.
 
 The fix is to slice the **artifact** rather than the compile — build the whole
 tree so imports and declarations always resolve, and emit only the named
 packages. That flag does not exist. Until it does, a bank runs one catalogue
-and accepts the blast radius, which is not an acceptable answer.
+and accepts the blast radius, which is not an acceptable answer. The manifest
+does not change this: it composes more inputs into one catalogue, which is the
+opposite axis.
 
 **~~Policy changes are invisible in review.~~** Fixed — see below.
 
@@ -586,7 +612,7 @@ and `sets: ["support"]` — so a caller who can start a run can read its result,
 and no one else can. That equality is asserted in
 `bank/agent_test.go`'s `TestInvokeAndGetRunAreVisibleToExactlyTheSameCallers`.
 Lint rule A5 checks this on the CLI too (garm v0.14.1 and later; this repo
-pins v0.16.0), so `mise run lint-bank` and `bank/agent_test.go` enforce the
+pins v0.20.0), so `mise run lint-bank` and `bank/agent_test.go` enforce the
 same equality from two sides.
 
 `Invoke` declares only `effects: { idempotent: false }` and leaves
@@ -684,40 +710,61 @@ and not the names behind it; the prompt tells the model to report exactly
 that rather than guess.
 
 **`web.v1.fetch_page`, adopted.** The fourth agent needs a tool the bank did
-not write, and this tree adopts it the way `garm-ai/tools`'s README says an
-adopter should: `go get github.com/garm-ai/tools/web@v0.1.2` in the module,
-then the package's proto tree and the taxonomy's copied from the module cache
-into `proto/` — `proto/web/v1/web.proto` and
-`proto/tools/taxonomy/v1/taxonomy.proto`, verbatim, with the `chmod -R u+w`
-the read-only cache makes necessary. `garm catalogue build` then sees
-`web.v1.fetch_page` (`INTERNAL`, compartment `internet`, set `research`,
-`VERB_READ`, `external: true`) and the taxonomy's four declarations. The
-package's taxonomy and the bank's own do not clash: `internet` and
-`generated-artefacts`, `research` and `documents` are names
-`bank/v1/taxonomy.proto` never declared, so there was nothing to merge and
-nothing to rename (lint rule L29 would have refused two different
-declarations of one name). Two things follow. `buf.gen.yaml` excludes both
-directories from generation, because `go get` already brought the generated
-messages and the service binding under the `go_package` those files name,
-and a second copy of the same descriptors would register the same proto file
-twice. And `mise run lint-bank` now carries one warning, `O1` on
-`web.v1.WebService`, because the package at `v0.1.2` names no owner and the
-file is copied verbatim rather than patched; the package's README says the
-same. The service that answers `fetch_page` is not in this tree: it is the
-package's own `webd`, run beside `bankd` by the deployment, with the host
-allowlist in its policy file.
+not write, and adopting it is now two lines. `go get
+github.com/garm-ai/tools/web@v0.2.0` in the module, and an entry in
+`../catalogue.yaml`:
 
-**An adopted package's tag is part of the contract migration.** The taxonomy
-module moved to `v0.2.0` and `web` to `v0.2.0` when the contracts left `garm`,
-and the bump is the dependency's identity rather than its content: the
-`.proto` is byte-identical across it, and this tree's copy of it still matches
-the module cache exactly. Taking the older tag is not an option that merely
-lags. `taxonomy@v0.1.1` is generated against
-`github.com/garm-ai/garm/contracts`, so a binary holding it beside anything on
-`github.com/garm-ai/contracts` registers `garm/tool/v1/*.proto` twice and dies
-in `protoregistry` at init — it compiles, and then does not start. **When you
-adopt a package here, check that the tag you take is built against the same
-contract module this one is.**
+```yaml
+  - module: github.com/garm-ai/tools/web
+    version: v0.2.0
+    packages: [web.v1]
+```
+
+`garm catalogue build` resolves that module with `go list -m`, reads `web.v1`
+out of the module cache and composes it in: `web.v1.fetch_page` (`INTERNAL`,
+compartment `internet`, set `research`, `VERB_READ`, `external: true`) plus the
+two synthesised card endpoints. The package's taxonomy and the bank's own do not
+clash — `internet` and `generated-artefacts`, `research` and `documents` are
+names `bank/v1/taxonomy.proto` never declared, so there is nothing to merge and
+nothing to rename (L29 refuses two *different* declarations of one name).
+
+It used to be a copy: `proto/web/v1/web.proto` verbatim out of the module cache
+with the `chmod -R u+w` a read-only cache makes necessary, plus an
+`exclude_paths` line keeping its Go out of generation, plus nothing watching the
+copy for drift. **The entry is better than the copy for one reason above all
+others: `go.mod` decides the version.** A copy can be a tag behind what the tree
+compiles against, and the artifact says nothing about it; a module entry cannot,
+because the builder refuses a module the tree does not require and checks the
+`version:` key against the module graph.
+
+**The one warning this catalogue carries is still `O1` on `web.v1.WebService`**,
+which names no owner. It is reported by `garm catalogue build` now rather than by
+`garm lint` — the tree the linter would be pointed at no longer contains the
+adopted package — and it is the package's to fix, not this tree's.
+
+The service that answers `fetch_page` is not in this tree: it is the package's
+own `webd`, run beside `bankd` by the deployment, with the host allowlist in its
+policy file.
+
+**A module this tree pins and never calls needs one line of Go.** `adopted.go`
+blank-imports `github.com/garm-ai/tools/web/gen/web/v1`, and it is not
+decoration: nothing here calls that package — `fetch_page` goes through the
+daemon over NATS — so `go mod tidy` would drop the requirement, and a dropped
+requirement makes the manifest entry illegal. A blank import is the ordinary Go
+idiom for a dependency you pin without calling. The adopted taxonomy needs no
+line, because a proto in this tree still imports it and the generated code
+carries one.
+
+**An adopted package's tag is part of the contract migration, and now the build
+enforces it.** `web` and `taxonomy` both moved to `v0.2.0` when the contracts
+left `garm`. Taking an older tag is not an option that merely lags:
+`taxonomy@v0.1.1` is generated against `github.com/garm-ai/garm/contracts`, so a
+binary holding it beside anything on `github.com/garm-ai/contracts` registers
+`garm/tool/v1/*.proto` twice and dies in `protoregistry` at init — it compiles,
+and then does not start. That used to be advisory prose in `buf.gen.yaml`; it is
+now structural, because the proto version and the Go version are the same
+version by construction. **When you adopt a package here, check that the tag you
+take is built against the same contract module this one is.**
 
 The role `support-desk` gains the `internet` compartment and the `research`
 set, in `auth/claims.yaml` and `auth/personas.yaml` alike, so a first-line
@@ -759,7 +806,7 @@ assistant, the guardian and the research assistant, ada the concierge, priya
 the screen, and a 404 from `GET /agents/{name}/card` for any other pairing
 is the answer working.
 
-## Adopting a platform proto: `garm.tasks.v1`
+## Adopting a tool is an entry in the manifest: `garm.tasks.v1`
 
 `tasksd` serves the task queue as eight governed tools on
 `garm.tasks.v1.TasksService` over NATS — `create_task`, `list_tasks`,
@@ -769,33 +816,67 @@ them**: garmd dispatches what a catalogue declares, the catalogue this
 deployment mounts is the bank's, and the bank's proto tree said nothing about
 `garm.tasks.v1`. A service serving eight subjects nobody can address.
 
-The fix is adoption, and it is the same mechanism `web.v1.fetch_page` uses:
-`garm/tasks/v1/tasks.proto` is copied verbatim out of the
-`github.com/garm-ai/contracts@v0.3.0` module cache into
-`proto/garm/tasks/v1/`, and `buf.gen.yaml` adds `proto/garm` to
-`exclude_paths` so its Go is **not** generated here. The generated code arrives
-through the module the tree already depends on, and a second local copy
-registering the same descriptor file panics in `protoregistry` at init — the
-collision that has bitten this platform more than once.
+The fix is adoption, and it is the same mechanism `web.v1.fetch_page` uses — an
+entry in `../catalogue.yaml`:
 
-**The asymmetry worth understanding.** The annotations and this file come out of
-*the same module* and go to *different trees*:
+```yaml
+  - module: github.com/garm-ai/contracts
+    version: v0.5.0
+    packages: [garm.tasks.v1]
+```
 
-| | where | why |
+It used to be a copy of `garm/tasks/v1/tasks.proto` in `proto/garm/tasks/v1/`,
+with `proto/garm` in `exclude_paths` so its Go was not generated twice, and a
+byte-comparison gate watching it. All three are gone, because the builder reads
+the package out of the module cache at the version `go.mod` resolves.
+
+**The asymmetry worth understanding is still there, and it is now between a
+COPY and an ENTRY rather than between two copies.** The annotations and this
+file come out of *the same module* at *the same version* and are handled
+differently:
+
+| | how | why |
 | --- | --- | --- |
-| `garm/tool/v1`, `garm/agent/v1`, `garm/card/v1`, `garm/meta/v1` | `third_party/proto/garm/…` | They **define annotations**. This tree's protos import them; they declare no tools, so `third_party/proto` is deliberately **not** an input to `garm catalogue build`. |
-| `garm/tasks/v1/tasks.proto` | `proto/garm/tasks/v1/` | It **declares eight tools**. The catalogue is built from one proto tree (`garm catalogue build --proto proto`), so a declaration the builder cannot see is a subject the daemon cannot dispatch to. |
+| `garm/tool/v1`, `garm/agent/v1`, `garm/card/v1`, `garm/meta/v1` | **copied**, into `third_party/proto/garm/…` | They **define annotations**. This tree's own protos `import "garm/tool/v1/tool.proto"` and no toolchain resolves an import out of a Go module for you. They declare no tools, so they are not an input to the catalogue either, and the manifest cannot replace them. `mise run vendor-check` is the only thing watching them. |
+| `garm/tasks/v1/tasks.proto` | **composed**, by a `catalogue.yaml` entry | It **declares eight tools**, so it is an input, and an input is exactly what the manifest names. Nothing imports it, so nothing needs it on disk. |
 
-**The rule is what the file declares, not which module it came from.** A
-platform proto that declares tools goes in the input tree; one that only
-defines annotations goes in `third_party`.
+**The rule is what the file declares, not which module it came from.** Declares
+tools → an input, which now means a manifest entry. Defines annotations only →
+`third_party`, still vendored, still gated.
 
-`mise run vendor-annotations` writes all three destinations and `mise run
-vendor-check` compares all three byte for byte, so the adopted tasks proto is
-not the one uncovered copy in the repository. It is the copy least safe to let
-drift: a stale annotation costs a rule nobody applies, while a stale
-`garm/tasks/v1` means this catalogue advertises a shape of the task tools that
-the `tasksd` answering them no longer has.
+`mise run vendor-annotations` writes two destinations now rather than three, and
+`mise run vendor-check` compares those two. **The gate went with the copy it was
+watching**, which is the point: there is nothing left to drift when the builder
+reads the bytes out of the module cache at the version `go.mod` resolved. The
+concern the gate existed for — that a stale `garm/tasks/v1` would make this
+catalogue advertise a shape of the task tools that the `tasksd` answering them no
+longer has — is now structurally impossible rather than checked.
+
+**The artifact says which version it got, which is new.** `Provenance` records
+each resolved input, so `bank.binpb` now carries:
+
+```
+local  bank/proto  source=garm-ai/examples/bank
+       packages=[accounts.v1 bank.agents.v1 bank.v1 cards.v1 payments.v1
+                 screening.v1 tools.taxonomy.v1]
+module github.com/garm-ai/contracts@v0.5.0   packages=[garm.tasks.v1]
+module github.com/garm-ai/tools/web@v0.2.0   packages=[web.v1]
+```
+
+"Which version of the task contract is this bank running" is answerable from the
+catalogue now. It was previously knowable only from a commit, which for the one
+artefact a reviewer is asked to trust was a serious omission.
+
+**One caveat, and it is the reason this tree requires `contracts v0.5.0` rather
+than `v0.3.0`.** The compiler resolves a proto file from the Go registry before
+the filesystem, deliberately — that is what makes the linked annotations
+authoritative — so for a package the CLI itself **links**, the bytes compiled are
+the CLI's and the version recorded is the tree's requirement. `garm v0.20.0`
+links `contracts v0.5.0`. A tree requiring `v0.3.0` would therefore publish
+`v0.5.0`'s descriptors under a provenance entry saying `v0.3.0`, and nothing
+would warn: a bill of materials whose first line is wrong, in the feature whose
+whole purpose is a truthful bill of materials. The two are held equal here by
+hand until the CLI warns about the mismatch.
 
 **What it costs the catalogue, and what it does not.** Eight tools and the
 fourteen card endpoints synthesised for them, so the bank goes from nineteen
@@ -803,10 +884,17 @@ tools in six packages to **twenty-seven in seven**, and from twenty-nine
 synthesised card endpoints to forty-three. The documented-field count does not
 move (thirty-six): `tasks.proto`'s field policies are flat and `CLEARANCE_PUBLIC`
 by message default, with the two `RESTRICTED` exceptions (`Task.answer`, the
-grant on `DecideTaskRequest`) carrying no documentation string. `garm lint` adds
-no finding — the one `O1` warning is still `web.v1.WebService`'s missing owner
-and nothing else. The compartment count is unchanged at seven, because the file
+grant on `DecideTaskRequest`) carrying no documentation string. Lint adds no
+finding — the one `O1` warning is still `web.v1.WebService`'s missing owner and
+nothing else. The compartment count is unchanged at seven, because the file
 declares no compartment; it declares one tool set, `triage`.
+
+**Moving to the manifest moved none of that.** Twenty-seven tools in seven
+packages, twenty-four files, thirty-six documented fields, forty-three card
+endpoints, seven compartments, six tool sets, one `O1` warning, and `garm
+catalogue diff` reports no policy change across it. What moved is the digest,
+and it had to: provenance gained its inputs and `Provenance.Producer` went from
+`garm/v0.19.0` to `garm/v0.20.0`.
 
 **Every method is `MODE_NONE` and `CLEARANCE_PUBLIC` at the method gate**, which
 is what makes the catalogue mountable rather than a daemon that will not boot:
@@ -817,21 +905,32 @@ label on its card, projected by the daemon, not per method — a method-level ga
 would have to be the lowest predicate any tool in the deployment declares, which
 is no gate at all.
 
-**A persona sees a subset, and the tool set is what decides it.** Five of the
-eight declare `sets: ["triage"]` — `list_tasks`, `get_task`, `claim_task`,
-`release_task`, `triage_task`. The other three declare no set at all:
-`create_task` (`AUDIENCE_RUNNER`), `approval_card` and `decide_task` (both
-`AUDIENCE_PERSON`). A token scoped to tool sets reaches only tools in one of
-them, so a tool with no set is reachable by an **unscoped** session and by no
-scoped one — the same rule that makes the concierge reachable by a customer and
-by no staff catalogue.
+**A persona sees a subset, and the tool set is what decides it.** At `contracts
+v0.5.0` **seven** of the eight declare `sets: ["triage"]`: the five that always
+did — `list_tasks`, `get_task`, `claim_task`, `release_task`, `triage_task` — and
+`decide_task` and `approval_card`, which `v0.5.0` added. Only `create_task`
+(`AUDIENCE_RUNNER`) declares no set. A token scoped to tool sets reaches only
+tools in one of them, so a tool with no set is reachable by an **unscoped**
+session and by no scoped one — the same rule that makes the concierge reachable
+by a customer and by no staff catalogue.
+
+**That is the one behaviour this tree's move to `contracts v0.5.0` changes, and
+it is a fix rather than a widening anyone chose.** Declaring no set was the
+original reading of `decide_task` and it was wrong: every role that names a set
+was refused the method, which in this tree is every role but the customer's, so
+`task-triage` bought sam and priya a queue they could look at and not decide
+anything on. `sam` and `priya` now reach `decide_task` and `approval_card`;
+`jdoe` and `amir` still get garmd's `not_found` for both, because neither holds
+`triage`; `ada` is unchanged, because an unscoped session was never narrowed by a
+set. Verified against the running plane rather than reasoned about.
 
 Against this plane (`ListTools`, dev IdP personas):
 
 | persona | roles | what it sees of `garm.tasks.v1` |
 | --- | --- | --- |
 | `ada` | `retail-customer` — `INTERNAL`, `READ`, **no `tool_sets`** | `list_tasks`, `get_task`. `approval_card` is reachable too but not listed: garmd keeps card endpoints out of `ListTools`. |
-| `jdoe`, `sam`, `priya`, `amir` | staff roles, every one scoped to `support` / `research` / `payments` / `compliance` | **nothing**. `triage` is in no staff role, so the five triage tools are filtered out, and the three set-less ones need an unscoped token. |
+| `sam`, `priya` | `task-triage` — `PUBLIC`, `READ`+`WRITE`, `tool_sets: [triage]`, beside their own | `list_tasks`, `get_task`, `claim_task`, `release_task`, `triage_task`. `decide_task` and `approval_card` are reachable and not listed: both are `AUDIENCE_PERSON` card-and-decision endpoints garmd keeps out of `ListTools`. |
+| `jdoe`, `amir` | staff roles scoped to `support` / `research` / `compliance`, none with `triage` | **nothing**. Every tool in the package but `create_task` is in `triage`, and `create_task` needs an unscoped token. |
 
 Verbs do the rest of the narrowing: `ada` holds `READ`, so `claim_task`,
 `release_task`, `triage_task`, `decide_task` and `create_task` answer garmd's
@@ -843,23 +942,18 @@ nothing routing.** `POST /garm.tasks.v1.TasksService/ListTasks` as `ada`
 answers `200 {"cursor":""}`, and `GetTask` for an id that does not exist answers
 `404 tool_refused` — *the tool* found nothing, which is tasksd's own answer
 arriving back over NATS through the daemon. Before adoption both were garmd's
-`not_found`: a declared-nowhere subject.
-
-**So a person cannot work the queue yet, and that is policy rather than
-plumbing.** No role in `auth/claims.yaml` or `auth/personas.yaml` carries the
-`triage` set or a `WRITE` verb outside `support`, so nobody can claim or triage
-a task. Granting it is a one-line change to a role in both files, and it is a
-deliberate decision about who triages, not something adoption should have made
-for anyone.
+`not_found`: a declared-nowhere subject. `DecideTask` as `sam` answers `400
+invalid_argument` on an empty request and as `jdoe` answers garmd's `not_found`,
+which is the set doing its work on either side.
 
 ## Owners and cards
 
 Every service in this tree names who is answerable for it, and the payment
 tool says how its approval should read. Both are annotations from garm
 v0.15.0, vendored beside the others by `mise run vendor-annotations`
-(`third_party/proto/garm/{card,meta}/v1/`; the pin is now v0.16.0, which
-adds `FieldPolicy.source` to `tool.proto` without moving the schema
-version), and neither is policy: `garmd` never reads them, its catalogue
+(`third_party/proto/garm/{card,meta}/v1/`; the pin is now `contracts v0.5.0`,
+whose annotations are byte-identical to `v0.3.0`'s — only
+`garm/tasks/v1/tasks.proto` moved), and neither is policy: `garmd` never reads them, its catalogue
 version check ignores both namespaces, and `mise run check-bank` still
 mounts all twenty-seven tools on the pinned daemon.
 The agent runner reads them from the catalogue and puts them on every card
@@ -873,9 +967,9 @@ card for an open payment approval therefore names payments-platform, and the
 run card that proposed it names agent-platform: the tool is one team's and
 the run is another's. Lint rule O1 warns on any tool or agent service without
 an owner; every service this tree writes has one. The one warning `mise run
-lint-bank` prints is for `web.v1.WebService`, the adopted package copied
-verbatim (see "Four more agents"): its owner is the package's to add, not
-this tree's to patch in.
+lint-bank` prints is for `web.v1.WebService`, the package composed in from
+`github.com/garm-ai/tools/web` (see "Four more agents"): its owner is the
+package's to add, not this tree's to patch in.
 
 **`(garm.card.v1.task_card)` on `InitiatePayment`.** The one declared template
 in the bank. Its title is `Payment: {currency_code} {amount_minor_units} (minor units)`
@@ -891,7 +985,7 @@ the approver reads is what the grant digest binds.
 ## Running it
 
 ```bash
-mise run lint-bank         # the governance linter
+mise run lint-bank         # the governance linter, over the whole composed catalogue
 mise run gen-bank          # messages and tool bindings
 mise run catalogue-bank    # the artifact a daemon loads
 mise run prompt-sha        # rewrite an agent's prompt hash after editing its prompt

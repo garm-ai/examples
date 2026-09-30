@@ -66,11 +66,11 @@ roles:
     verbs: [READ, DESTRUCTIVE]
     tool_sets: [payments]
 
-  # The approval queue: the five garm.tasks.v1 tools carrying
+  # The approval queue: the seven garm.tasks.v1 tools carrying
   # `sets: ["triage"]`. A role of its own so that granting it to sam and priya
   # does not widen payments-ops and compliance-officer, which are also two
   # agents' ceilings. claims.yaml carries the full reasoning, including why it
-  # is not enough for decide_task.
+  # reaches decide_task now and did not at contracts v0.3.0.
   task-triage:
     clearance: PUBLIC
     compartments: []

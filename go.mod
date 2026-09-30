@@ -16,11 +16,14 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/garm-ai/tools/taxonomy v0.2.0
+require (
+	github.com/garm-ai/tools/taxonomy v0.2.0
+	github.com/garm-ai/tools/web v0.2.0
+)
 
 require (
 	github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op // indirect
-	github.com/garm-ai/contracts v0.3.0
+	github.com/garm-ai/contracts v0.5.0
 	github.com/google/go-tpm v0.9.8 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/minio/highwayhash v1.0.4 // indirect
