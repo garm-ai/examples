@@ -79,9 +79,38 @@ missing, run those two before anything else.**
 It is not `garm init --force`, which is the documented way to vendor them and
 is right for a new tree. `init` writes six files and two of them are `buf.yaml`
 and `buf.gen.yaml`: on these trees it would replace the bank's protovalidate
-dependency, the `exclude_paths` keeping the adopted web package out of
+dependency, the `exclude_paths` keeping the adopted packages out of
 generation, and both trees' real `contract_version`, with scaffold defaults.
-Re-vendoring must move the annotations and nothing else.
+Re-vendoring must move the vendored protos and nothing else.
+
+## A platform proto that declares tools is an INPUT; one that only defines annotations is not
+
+Two files in this repository come out of the same module,
+`github.com/garm-ai/contracts`, at the same pinned version, and they live in
+different trees. That is not an inconsistency to tidy up, and the rule is worth
+knowing before you vendor the next one.
+
+| the file | where it goes | why |
+| --- | --- | --- |
+| `garm/tool/v1/tool.proto`, `garm/agent/v1`, `garm/card/v1`, `garm/meta/v1` | `<tree>/third_party/proto/garm/…` | They **define annotations**. This tree's protos import them so `import "garm/tool/v1/tool.proto"` resolves. They declare no tools, so `third_party/proto` is deliberately **not** an input to `garm catalogue build`: feeding it in would add files to the descriptor set and nothing to the catalogue. |
+| `garm/tasks/v1/tasks.proto` | `bank/proto/garm/tasks/v1/` | It **declares eight tools** — the task queue `tasksd` serves. The catalogue is built from one proto tree, so a declaration the builder cannot see is a tool the daemon cannot dispatch to. It has to be an input. |
+
+**The rule is what the file declares, not which module it came from.** Declares
+tools → the input tree. Defines annotations only → `third_party`.
+
+Both copies carry the same drift risk and `mise run vendor-check` covers both:
+`bank/third_party`, `calculator/third_party` and `bank/proto/garm` are compared
+byte for byte against the module. Leaving the second one out would make it the
+single uncovered copy in the repository, and the worse of the two to lose — a
+drifted annotation costs a rule nobody applies, while a drifted
+`garm/tasks/v1` means this catalogue advertises a shape of the task tools that
+the `tasksd` answering them no longer has.
+
+Adopted-package Go is never generated here, whichever tree the proto sits in.
+`bank/buf.gen.yaml` excludes `proto/tools`, `proto/web` and `proto/garm`,
+because the generated messages and bindings already arrived through the module
+under the `go_package` those files name, and a second copy registering the same
+descriptor file panics in `protoregistry` at init.
 
 ## Why this repository is the acceptance test
 
@@ -133,10 +162,13 @@ both generates connect code and declares a tool.
 ## bank
 
 A proto tree shaped like a real bank's — four tool domains, a shared
-taxonomy, one agent — and the answer to the question the calculator cannot
-ask: does this scale to three hundred engineers? Per-principal projection,
-the mount refusal on an ungated payment tool, what a grant binds, what a
-policy change looks like in review. `bank/README.md` is the long version.
+taxonomy, five agents, two adopted packages — and the answer to the question
+the calculator cannot ask: does this scale to three hundred engineers?
+Per-principal projection, the mount refusal on an ungated payment tool, what a
+grant binds, what a policy change looks like in review. Its catalogue is
+twenty-seven tools in seven packages, eight of them `garm.tasks.v1` adopted
+from `garm-ai/contracts` so the queue `tasksd` serves is reachable at all.
+`bank/README.md` is the long version.
 
 ### An agent, declared like a tool
 

@@ -1,8 +1,7 @@
 version: v2
 inputs:
   - directory: proto
-    # The adopted packages from github.com/garm-ai/tools (web, and the
-    # taxonomy it names) are copied here so `garm lint` and `garm catalogue
+    # The adopted packages are copied here so `garm lint` and `garm catalogue
     # build` see their declarations — the catalogue is built from one proto
     # tree. Their Go is NOT generated here: `go get` already brought the
     # generated messages and the service binding, under the go_package these
@@ -10,14 +9,43 @@ inputs:
     # the same proto file twice and panic at init. Same reason third_party/
     # is not an input.
     #
-    # Both adopted packages must be held at a tag built against
-    # github.com/garm-ai/contracts — taxonomy v0.2.0, web v0.2.0 — for the
-    # same reason in the other direction: a tag older than the split carries
-    # github.com/garm-ai/garm/contracts, which registers garm/tool/v1 a
-    # second time alongside this module's own contract.
+    # Three of them, from two places:
+    #
+    #   proto/tools, proto/web  — github.com/garm-ai/tools, the web fetcher
+    #                             and the taxonomy it names.
+    #   proto/garm/tasks        — github.com/garm-ai/contracts, the task
+    #                             queue's eight tools, served by tasksd.
+    #
+    # WHY A PLATFORM PROTO IS HERE AND NOT IN third_party/. Both the
+    # annotations and garm/tasks/v1/tasks.proto come out of the same module,
+    # github.com/garm-ai/contracts, and they go to different places. The rule
+    # is what the file DECLARES, not where it came from:
+    #
+    #   * a platform proto that DECLARES TOOLS belongs in the input tree, so
+    #     the builder reads it — garm/tasks/v1/tasks.proto declares eight
+    #     (create_task, list_tasks, get_task, approval_card, claim_task,
+    #     release_task, decide_task, triage_task), and a catalogue built
+    #     without it gives garmd nothing to dispatch to the subjects tasksd
+    #     is already serving;
+    #   * a platform proto that only DEFINES ANNOTATIONS belongs in
+    #     third_party/proto, which this tree's protos import and which is
+    #     deliberately NOT an input — garm/tool/v1, garm/agent/v1,
+    #     garm/card/v1 and garm/meta/v1 declare no tools, so feeding them to
+    #     the builder would add files to the descriptor set and nothing to
+    #     the catalogue.
+    #
+    # Both copies are the same drift risk and `mise run vendor-check` covers
+    # both: the bytes here are the module's bytes, compared verbatim.
+    #
+    # The two adopted packages from github.com/garm-ai/tools must be held at a
+    # tag built against github.com/garm-ai/contracts — taxonomy v0.2.0, web
+    # v0.2.0 — for the same reason in the other direction: a tag older than
+    # the split carries github.com/garm-ai/garm/contracts, which registers
+    # garm/tool/v1 a second time alongside this module's own contract.
     exclude_paths:
       - proto/tools
       - proto/web
+      - proto/garm
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: gen

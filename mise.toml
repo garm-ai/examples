@@ -5,7 +5,7 @@ go = "1.26"
 buf = "1"
 
 [tasks."vendor-annotations"]
-description = "Refresh the vendored garm annotations from the pinned contract module"
+description = "Refresh every vendored platform proto from the pinned contract module"
 # NOT `garm init --force`, even though that is the documented way to vendor
 # them and the CLI at v0.19.0 does read the bytes out of
 # github.com/garm-ai/contracts. init writes SIX files, and two of them are
@@ -25,41 +25,71 @@ description = "Refresh the vendored garm annotations from the pinned contract mo
 # platform warns a tree that its vendored annotations are older than the
 # module it compiles against; the version below is the only pin there is, so
 # it moves in the same commit as go.mod's.
+#
+# TWO DESTINATIONS, and which one a file goes to is decided by what the file
+# DECLARES rather than by which module it came from — both come from
+# github.com/garm-ai/contracts:
+#
+#   annotations -> <tree>/third_party/proto/garm/...
+#     garm/tool/v1, garm/agent/v1, garm/card/v1, garm/meta/v1. This tree's
+#     protos import them; they declare no tools, so third_party/proto is
+#     deliberately NOT an input to `garm catalogue build` — feeding it in
+#     would add files to the descriptor set and nothing to the catalogue.
+#
+#   a proto that declares tools -> bank/proto/garm/...
+#     garm/tasks/v1/tasks.proto, the eight tools tasksd serves. It has to be
+#     an INPUT: the catalogue is built from one proto tree, and a catalogue
+#     that does not declare garm.tasks.v1 gives garmd nothing to dispatch to
+#     subjects that are already being served. Its Go is excluded from
+#     generation in bank/buf.gen.yaml and comes from the module, for the same
+#     registry-collision reason the annotations' does.
+#
+# Both destinations are the same drift risk, so `vendor-check` below covers
+# both. Neither is a copy anyone edits: the bytes are the module's bytes.
 run = """
 set -e
 VERSION=v0.3.0
 go mod download github.com/garm-ai/contracts@$VERSION
 SRC="$(go env GOMODCACHE)/github.com/garm-ai/contracts@$VERSION/proto/garm"
-vendor() {
-  DEST="$1"; shift
+copy() {
+  ROOT="$1"; shift
   for f in "$@"; do
-    mkdir -p "$DEST/third_party/proto/garm/$(dirname "$f")"
-    cp "$SRC/$f" "$DEST/third_party/proto/garm/$f"
-    chmod u+w "$DEST/third_party/proto/garm/$f"
+    mkdir -p "$ROOT/garm/$(dirname "$f")"
+    cp "$SRC/$f" "$ROOT/garm/$f"
+    chmod u+w "$ROOT/garm/$f"
   done
-  echo "$DEST: vendored $* from contracts $VERSION"
+  echo "$ROOT: vendored $* from contracts $VERSION"
 }
-vendor bank tool/v1/tool.proto agent/v1/agent.proto card/v1/card.proto meta/v1/meta.proto
-vendor calculator tool/v1/tool.proto
+copy bank/third_party/proto tool/v1/tool.proto agent/v1/agent.proto card/v1/card.proto meta/v1/meta.proto
+copy calculator/third_party/proto tool/v1/tool.proto
+copy bank/proto tasks/v1/tasks.proto
 """
 
 [tasks."vendor-check"]
-description = "Fail if a vendored annotation has drifted from the contract module"
+description = "Fail if a vendored platform proto has drifted from the contract module"
 # The gap this closes is real and garm's KNOWN-GAPS names it: nothing warns a
 # tree that its vendored annotations are older than the contracts it compiles
 # against, and the symptom is a linter that cannot see rules the module has
 # and a catalogue built from a vocabulary nobody is looking at. The bytes are
 # written verbatim, so the check is a byte comparison.
+#
+# bank/proto/garm is in the path list for exactly the same reason the two
+# third_party trees are, and leaving it out would make the adopted tasks proto
+# the one uncovered copy in the repository — the worse case of the two, because
+# a drifted annotation only costs a rule nobody applies, while a drifted
+# garm/tasks/v1 means this catalogue declares a shape of the task tools that
+# the tasksd serving them no longer has.
 run = """
 set -e
 mise run vendor-annotations > /dev/null
-if ! git diff --quiet -- bank/third_party calculator/third_party; then
-  echo "a vendored annotation has drifted from the pinned contract module —" >&2
+PATHS="bank/third_party calculator/third_party bank/proto/garm"
+if ! git diff --quiet -- $PATHS; then
+  echo "a vendored platform proto has drifted from the pinned contract module —" >&2
   echo "run 'mise run vendor-annotations', re-run 'mise run gen', and commit:" >&2
-  git diff --stat -- bank/third_party calculator/third_party >&2
+  git diff --stat -- $PATHS >&2
   exit 1
 fi
-echo "ok: every vendored annotation matches the contract module"
+echo "ok: every vendored platform proto matches the contract module"
 """
 
 [tasks.plugin]
@@ -135,7 +165,7 @@ run = "go install github.com/garm-ai/garmd/cmd/garmd@v0.3.2"
 description = "Assert the bank catalogue mounts where it should and refuses where it should not"
 dir = "bank"
 depends = ["catalogue-bank", "daemon"]
-# Three runs, and the two failing ones are the point.
+# Four runs, and the three failing ones are the point.
 #
 # Asserting only that the catalogue mounts somewhere would pass just as well if
 # a refusal had quietly stopped working — and a refusal that stopped working is
@@ -143,9 +173,21 @@ depends = ["catalogue-bank", "daemon"]
 # outcome this whole system exists to prevent.
 #
 # initiate_payment declares BOTH MODE_GRANT and audit LEVEL_AUDIT with
-# fail_closed and retain_days 2555. Each is independently sufficient to refuse,
-# so each is asserted on its own: a deployment with neither, and a deployment
-# with grants but no audit sink. Only the third, equipped both ways, may mount.
+# fail_closed and retain_days 2555, and garm.tasks.v1.decide_task declares the
+# same audit block. Each declaration is independently sufficient to refuse, so
+# each is asserted with the OTHER step supplied, which is what makes the two
+# middle runs say something a bare run does not:
+#
+#   * bare — the smoke test: something must refuse.
+#   * an audit sink and NO grants — isolates the grant leg. This run exists
+#     because adopting garm.tasks.v1 changed what the bare run proves: garmd
+#     names the FIRST tool it refuses over, decide_task now sorts ahead of
+#     initiate_payment, and the bare refusal is therefore about audit even
+#     though the grant verifier is missing too. Without this run a broken
+#     GrantVerifier check would leave all three of the old runs green.
+#   * grants and NO audit sink — isolates the audit leg.
+#
+# Only the last, equipped both ways, may mount.
 #
 # 61320h is 2555 days. A sink keeping less is refused too, which is the check
 # that catches a misconfigured bucket rather than a missing one.
@@ -153,18 +195,29 @@ run = """
 set -e
 if garmd check --catalogue bank.binpb > /dev/null 2>&1; then
   echo "FAIL: the catalogue mounted on a deployment with no grant verifier and" >&2
-  echo "      no audit sink. initiate_payment declares both. The refusal has" >&2
-  echo "      stopped working, which means an irreversible payment would be" >&2
-  echo "      served ungated while its schema says it is supervised." >&2
+  echo "      no audit sink. initiate_payment declares both and decide_task" >&2
+  echo "      declares the audit. The refusal has stopped working, which means" >&2
+  echo "      an irreversible payment would be served ungated while its schema" >&2
+  echo "      says it is supervised." >&2
   exit 1
 fi
 echo "ok: refused on a bare deployment, as it must"
 
+if garmd check --catalogue bank.binpb --audit-retention 61320h > /dev/null 2>&1; then
+  echo "FAIL: the catalogue mounted on a deployment with an audit sink but NO" >&2
+  echo "      grant verifier. initiate_payment declares approval MODE_GRANT:" >&2
+  echo "      the money must not move without a grant a person signed, and a" >&2
+  echo "      durable record of an ungated payment is not a substitute." >&2
+  exit 1
+fi
+echo "ok: refused with an audit sink but no grant verifier, as it must"
+
 if garmd check --catalogue bank.binpb --with-grants > /dev/null 2>&1; then
   echo "FAIL: the catalogue mounted on a deployment with a grant verifier but" >&2
-  echo "      NO audit sink. initiate_payment declares audit.fail_closed with" >&2
-  echo "      2555 days of retention: the money must not move unless the record" >&2
-  echo "      of it is already durable. A grant alone does not buy that." >&2
+  echo "      NO audit sink. initiate_payment and decide_task both declare" >&2
+  echo "      audit.fail_closed with 2555 days of retention: neither the money" >&2
+  echo "      nor the decision that releases it may move unless the record of" >&2
+  echo "      it is already durable. A grant alone does not buy that." >&2
   exit 1
 fi
 echo "ok: refused with grants but no audit sink, as it must"

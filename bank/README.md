@@ -1,8 +1,9 @@
 # bank
 
 A proto tree shaped like a real bank's: four domains, eight tools, one shared
-taxonomy, one tool adopted from a public package, and a deliberate
-demonstration of what happens when you put all of that in one catalogue.
+taxonomy, five agents, two adopted packages — one public tool and one platform
+service — and a deliberate demonstration of what happens when you put all of
+that in one catalogue.
 
 It exists to answer a question the calculator cannot: **does this scale to
 three hundred engineers?**
@@ -10,12 +11,22 @@ three hundred engineers?**
 ```
 proto/
   bank/v1/          the taxonomy — which compartments and tool sets exist at all
-  bank/agents/v1/   the agents — the support assistant and three more
+  bank/agents/v1/   the agents — the support assistant and four more
   accounts/v1/      balances and customer details
   cards/v1/         card state, in PCI scope
   payments/v1/      moving money
   screening/v1/     sanctions and PEP screening
+
+  web/v1/           ADOPTED, github.com/garm-ai/tools/web — fetch_page
+  tools/taxonomy/v1/  ADOPTED, the compartments and sets that package names
+  garm/tasks/v1/    ADOPTED, github.com/garm-ai/contracts — the eight task
+                    tools tasksd serves. A platform proto, and in the input
+                    tree rather than third_party/ because it DECLARES TOOLS
 ```
+
+The three adopted directories are copied verbatim from a module cache and
+excluded from generation in `buf.gen.yaml`; see "Adopting a platform proto"
+below for the rule that decides where a copy goes.
 
 ## What each domain is here to teach
 
@@ -75,12 +86,16 @@ boundary is the directory; buf does not have to agree for it to be real.
 
 `bank/v1/taxonomy.proto` declares the compartments. A compartment naming
 anything undeclared is refused at mount, which makes that file the bank's
-allowlist rather than documentation of one. Since the bank adopted
-`web.v1.fetch_page` there is a second declaring file,
-`tools/taxonomy/v1/taxonomy.proto`, copied from `garm-ai/tools` with the
-names its tools use (`internet`, `generated-artefacts`; `research`,
-`documents`); the catalogue merges identical declarations of one name and
-refuses different ones (L29), and today the two files share none.
+allowlist rather than documentation of one. Adoption has added two more
+declaring files. `tools/taxonomy/v1/taxonomy.proto`, copied from
+`garm-ai/tools` with the names its tools use (`internet`,
+`generated-artefacts`; `research`, `documents`). And
+`garm/tasks/v1/tasks.proto`, copied from `garm-ai/contracts`, which declares
+no compartment at all and exactly one tool set, `triage` — the set an agent's
+manifest lists if it may work a queue without deciding anything on it. The
+catalogue merges identical declarations of one name and refuses different ones
+(L29), and today the three files share none: the compartment count is still
+seven.
 
 Each domain imports it even though it references no symbol from it. That is
 not tidiness — without the import the taxonomy is not in the domain's
@@ -177,22 +192,36 @@ because they travel:
 
 `initiate_payment` declares two independent forms of supervision — `MODE_GRANT`
 and `LEVEL_AUDIT` with `fail_closed` and seven years of retention — and each is
-independently sufficient to refuse an unsupervised deployment. `mise run
-check-bank` builds the catalogue and runs `garmd check` against it three times,
-and the two failing runs are the point:
+independently sufficient to refuse an unsupervised deployment. `garm.tasks.v1`'s
+`decide_task` declares the same audit block, for the same reason: the decision
+that releases the money is as irreversible as the payment. `mise run
+check-bank` builds the catalogue and runs `garmd check` against it four times,
+and the three failing runs are the point:
 
 1. a bare deployment (no grant verifier, no audit sink) — **must fail**.
-2. a deployment with a grant verifier but **no** audit sink — **must also
+2. a deployment with an audit sink but **no** grant verifier — **must also
+   fail**, because a durable record of an ungated payment is not a substitute
+   for a grant a person signed.
+3. a deployment with a grant verifier but **no** audit sink — **must also
    fail**, because a grant alone does not buy a durable record before the
    money moves.
-3. a deployment with both, and an audit sink keeping at least the seven years
+4. a deployment with both, and an audit sink keeping at least the seven years
    `initiate_payment` declares — **must mount**.
 
 Asserting only that the catalogue mounts somewhere would pass equally well if
 one of the two refusals had quietly stopped working, and a refusal that has
 stopped working is a payment tool served with no grant or no audit trail. Same
-catalogue, three capability combinations, three outcomes — that is what makes
-it a test rather than a formality.
+catalogue, four capability combinations, four outcomes — that is what makes it
+a test rather than a formality.
+
+**Run 2 is new, and adopting `garm.tasks.v1` is what required it.** `garmd
+check` names the **first** tool it would refuse over, `decide_task` sorts ahead
+of `initiate_payment`, and `decide_task` declares audit and no approval mode —
+so the bare run's refusal is now about the missing audit sink even though the
+grant verifier is missing too. A broken `GrantVerifier` check would have left
+every one of the old three runs green. Isolating the grant leg on a deployment
+that already has the audit sink puts that assertion back where a reader can
+see it.
 
 Two layers catch it, which is worth knowing when you are tempted to weaken an
 annotation to get a build green:
@@ -599,10 +628,11 @@ change — so two things keep it honest:
 `GetRun` as two ordinary governed tools and never reads the
 `(garm.agent.v1.agent)` annotation at all — it is agent-blind by design, so a
 change to what an agent runs as can never affect what garmd itself decides to
-serve. `mise run check-bank` builds the full nineteen-tool catalogue (the
+serve. `mise run check-bank` builds the full twenty-seven-tool catalogue (the
 eight tools the bank already had, `web.v1.fetch_page` adopted from
-`garm-ai/tools`, plus `Invoke` and `GetRun` for each of the five agents) and
-asserts only that adding the agents does not make the bank unmountable. It says nothing about whether an agent runner exists to
+`garm-ai/tools`, the eight of `garm.tasks.v1` adopted from
+`garm-ai/contracts`, plus `Invoke` and `GetRun` for each of the five agents)
+and asserts only that adding the agents does not make the bank unmountable. It says nothing about whether an agent runner exists to
 serve `SupportAssistant` — nothing in this repository implements it, and the
 generated `SupportAssistantHandler` interface in
 `bank/gen/bank/agents/v1/bankagentsv1_micro.pb.go` is deliberately
@@ -729,6 +759,99 @@ assistant, the guardian and the research assistant, ada the concierge, priya
 the screen, and a 404 from `GET /agents/{name}/card` for any other pairing
 is the answer working.
 
+## Adopting a platform proto: `garm.tasks.v1`
+
+`tasksd` serves the task queue as eight governed tools on
+`garm.tasks.v1.TasksService` over NATS — `create_task`, `list_tasks`,
+`get_task`, `approval_card`, `claim_task`, `release_task`, `decide_task`,
+`triage_task`. Until this tree declared them, **nothing routed to any of
+them**: garmd dispatches what a catalogue declares, the catalogue this
+deployment mounts is the bank's, and the bank's proto tree said nothing about
+`garm.tasks.v1`. A service serving eight subjects nobody can address.
+
+The fix is adoption, and it is the same mechanism `web.v1.fetch_page` uses:
+`garm/tasks/v1/tasks.proto` is copied verbatim out of the
+`github.com/garm-ai/contracts@v0.3.0` module cache into
+`proto/garm/tasks/v1/`, and `buf.gen.yaml` adds `proto/garm` to
+`exclude_paths` so its Go is **not** generated here. The generated code arrives
+through the module the tree already depends on, and a second local copy
+registering the same descriptor file panics in `protoregistry` at init — the
+collision that has bitten this platform more than once.
+
+**The asymmetry worth understanding.** The annotations and this file come out of
+*the same module* and go to *different trees*:
+
+| | where | why |
+| --- | --- | --- |
+| `garm/tool/v1`, `garm/agent/v1`, `garm/card/v1`, `garm/meta/v1` | `third_party/proto/garm/…` | They **define annotations**. This tree's protos import them; they declare no tools, so `third_party/proto` is deliberately **not** an input to `garm catalogue build`. |
+| `garm/tasks/v1/tasks.proto` | `proto/garm/tasks/v1/` | It **declares eight tools**. The catalogue is built from one proto tree (`garm catalogue build --proto proto`), so a declaration the builder cannot see is a subject the daemon cannot dispatch to. |
+
+**The rule is what the file declares, not which module it came from.** A
+platform proto that declares tools goes in the input tree; one that only
+defines annotations goes in `third_party`.
+
+`mise run vendor-annotations` writes all three destinations and `mise run
+vendor-check` compares all three byte for byte, so the adopted tasks proto is
+not the one uncovered copy in the repository. It is the copy least safe to let
+drift: a stale annotation costs a rule nobody applies, while a stale
+`garm/tasks/v1` means this catalogue advertises a shape of the task tools that
+the `tasksd` answering them no longer has.
+
+**What it costs the catalogue, and what it does not.** Eight tools and the
+fourteen card endpoints synthesised for them, so the bank goes from nineteen
+tools in six packages to **twenty-seven in seven**, and from twenty-nine
+synthesised card endpoints to forty-three. The documented-field count does not
+move (thirty-six): `tasks.proto`'s field policies are flat and `CLEARANCE_PUBLIC`
+by message default, with the two `RESTRICTED` exceptions (`Task.answer`, the
+grant on `DecideTaskRequest`) carrying no documentation string. `garm lint` adds
+no finding — the one `O1` warning is still `web.v1.WebService`'s missing owner
+and nothing else. The compartment count is unchanged at seven, because the file
+declares no compartment; it declares one tool set, `triage`.
+
+**Every method is `MODE_NONE` and `CLEARANCE_PUBLIC` at the method gate**, which
+is what makes the catalogue mountable rather than a daemon that will not boot:
+garmd refuses a catalogue declaring a mode it cannot enforce, and a task tool
+asking for something this plane has no step for would stop `garmd` starting
+rather than degrade. Which task a viewer may see is decided per task by the
+label on its card, projected by the daemon, not per method — a method-level gate
+would have to be the lowest predicate any tool in the deployment declares, which
+is no gate at all.
+
+**A persona sees a subset, and the tool set is what decides it.** Five of the
+eight declare `sets: ["triage"]` — `list_tasks`, `get_task`, `claim_task`,
+`release_task`, `triage_task`. The other three declare no set at all:
+`create_task` (`AUDIENCE_RUNNER`), `approval_card` and `decide_task` (both
+`AUDIENCE_PERSON`). A token scoped to tool sets reaches only tools in one of
+them, so a tool with no set is reachable by an **unscoped** session and by no
+scoped one — the same rule that makes the concierge reachable by a customer and
+by no staff catalogue.
+
+Against this plane (`ListTools`, dev IdP personas):
+
+| persona | roles | what it sees of `garm.tasks.v1` |
+| --- | --- | --- |
+| `ada` | `retail-customer` — `INTERNAL`, `READ`, **no `tool_sets`** | `list_tasks`, `get_task`. `approval_card` is reachable too but not listed: garmd keeps card endpoints out of `ListTools`. |
+| `jdoe`, `sam`, `priya`, `amir` | staff roles, every one scoped to `support` / `research` / `payments` / `compliance` | **nothing**. `triage` is in no staff role, so the five triage tools are filtered out, and the three set-less ones need an unscoped token. |
+
+Verbs do the rest of the narrowing: `ada` holds `READ`, so `claim_task`,
+`release_task`, `triage_task`, `decide_task` and `create_task` answer garmd's
+own `not_found` to her — the daemon does not admit a tool you cannot reach
+exists.
+
+**Reachability is proved, and the queue being empty is not the same thing as
+nothing routing.** `POST /garm.tasks.v1.TasksService/ListTasks` as `ada`
+answers `200 {"cursor":""}`, and `GetTask` for an id that does not exist answers
+`404 tool_refused` — *the tool* found nothing, which is tasksd's own answer
+arriving back over NATS through the daemon. Before adoption both were garmd's
+`not_found`: a declared-nowhere subject.
+
+**So a person cannot work the queue yet, and that is policy rather than
+plumbing.** No role in `auth/claims.yaml` or `auth/personas.yaml` carries the
+`triage` set or a `WRITE` verb outside `support`, so nobody can claim or triage
+a task. Granting it is a one-line change to a role in both files, and it is a
+deliberate decision about who triages, not something adoption should have made
+for anyone.
+
 ## Owners and cards
 
 Every service in this tree names who is answerable for it, and the payment
@@ -738,7 +861,7 @@ v0.15.0, vendored beside the others by `mise run vendor-annotations`
 adds `FieldPolicy.source` to `tool.proto` without moving the schema
 version), and neither is policy: `garmd` never reads them, its catalogue
 version check ignores both namespaces, and `mise run check-bank` still
-mounts all nineteen tools on the same v0.2.0 daemon.
+mounts all twenty-seven tools on the pinned daemon.
 The agent runner reads them from the catalogue and puts them on every card
 the inbox renders.
 
