@@ -100,6 +100,35 @@ type ConciergeCards interface {
 	ResultCard(context.Context, *v11.CallRef) (*v11.Card, error)
 }
 
+// NewBeneficiaryPaymentHandler implements every tool NewBeneficiaryPayment declares, in plain
+// proto signatures with no transport wrapper. There is no
+// Unimplemented embed: a tool added to the .proto and not implemented
+// here fails to COMPILE, rather than mounting and answering
+// Unimplemented to a real caller at runtime.
+type NewBeneficiaryPaymentHandler interface {
+	Invoke(context.Context, *NewBeneficiaryPaymentRequest) (*v1.RunRef, error)
+	GetRun(context.Context, *v1.RunRef) (*v1.RunStatus, error)
+	GetState(context.Context, *v1.RunRef) (*NewBeneficiaryPaymentState, error)
+}
+
+// NewBeneficiaryPaymentCards is the optional interface for overriding a generated card.
+//
+// Implement a method of it on your handler and ServeNewBeneficiaryPayment registers
+// yours; leave it out and the generated default is registered. It is
+// per method, not all or nothing: overriding the approval card of one
+// tool leaves every other card generated.
+//
+// An override gets the ref, its own data from its own store, and the
+// invocation from ctx. It MUST label what it adds — an unlabelled
+// element takes the endpoint's own policy, and an element labelled
+// BELOW the endpoint fails the whole card rather than being served.
+// cards.Join is how to label something at the endpoint's floor or
+// higher.
+type NewBeneficiaryPaymentCards interface {
+	InputCard(context.Context, *emptypb.Empty) (*v11.Card, error)
+	ResultCard(context.Context, *v11.CallRef) (*v11.Card, error)
+}
+
 // ResearchAssistantHandler implements every tool ResearchAssistant declares, in plain
 // proto signatures with no transport wrapper. There is no
 // Unimplemented embed: a tool added to the .proto and not implemented
@@ -305,6 +334,48 @@ func DefaultConciergeResultCard(_ context.Context, _ *v11.CallRef) (*v11.Card, e
 // This is what an override calls after reading its own store.
 func ConciergeResultCardFrom(ref *v11.CallRef, resp *v1.RunRef) (*v11.Card, error) {
 	md, err := garmCardMethod("bank.agents.v1.Concierge", "Invoke")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// DefaultNewBeneficiaryPaymentInputCard is the generated form for Invoke.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultNewBeneficiaryPaymentInputCard(_ context.Context, _ *emptypb.Empty) (*v11.Card, error) {
+	md, err := garmCardMethod("bank.agents.v1.NewBeneficiaryPayment", "Invoke")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultNewBeneficiaryPaymentResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response Invoke returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override ResultCard, read your
+// own row, and call NewBeneficiaryPaymentResultCardFrom with it.
+func DefaultNewBeneficiaryPaymentResultCard(_ context.Context, _ *v11.CallRef) (*v11.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// NewBeneficiaryPaymentResultCardFrom builds Invoke's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func NewBeneficiaryPaymentResultCardFrom(ref *v11.CallRef, resp *v1.RunRef) (*v11.Card, error) {
+	md, err := garmCardMethod("bank.agents.v1.NewBeneficiaryPayment", "Invoke")
 	if err != nil {
 		return nil, err
 	}
@@ -743,6 +814,149 @@ func ServeConcierge(r toolbind.Registrar, h ConciergeHandler) error {
 	return nil
 }
 
+// ServeNewBeneficiaryPayment registers one micro endpoint per tool NewBeneficiaryPayment declares,
+// and one per card those tools serve.
+//
+// A card is registered exactly like a tool, because it IS one: the
+// daemon routes to it through the same ten steps, at the parent tool's
+// clearance, into the same ledger. Where h implements a card's own
+// signature that override is registered; otherwise the generated
+// default is. See NewBeneficiaryPaymentCards.
+func ServeNewBeneficiaryPayment(r toolbind.Registrar, h NewBeneficiaryPaymentHandler) error {
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.new_beneficiary_payment",
+			Subject:         "bank.agents.v1.NewBeneficiaryPayment.Invoke",
+			Method:          "Invoke",
+			Service:         "bank.agents.v1.NewBeneficiaryPayment",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(NewBeneficiaryPaymentRequest) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*NewBeneficiaryPaymentRequest)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.NewBeneficiaryPayment.Invoke: request is %T, want %T", req, (*NewBeneficiaryPaymentRequest)(nil))
+			}
+			res, err := h.Invoke(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.NewBeneficiaryPayment.Invoke: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.new_beneficiary_payment_run",
+			Subject:         "bank.agents.v1.NewBeneficiaryPayment.GetRun",
+			Method:          "GetRun",
+			Service:         "bank.agents.v1.NewBeneficiaryPayment",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.RunRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.RunRef)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.NewBeneficiaryPayment.GetRun: request is %T, want %T", req, (*v1.RunRef)(nil))
+			}
+			res, err := h.GetRun(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.NewBeneficiaryPayment.GetRun: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.new_beneficiary_payment_state",
+			Subject:         "bank.agents.v1.NewBeneficiaryPayment.GetState",
+			Method:          "GetState",
+			Service:         "bank.agents.v1.NewBeneficiaryPayment",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.RunRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.RunRef)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.NewBeneficiaryPayment.GetState: request is %T, want %T", req, (*v1.RunRef)(nil))
+			}
+			res, err := h.GetState(ctx, in)
+			if err != nil {
+				return nil, err
+			}
+			if res == nil {
+				return nil, fmt.Errorf("bank.agents.v1.NewBeneficiaryPayment.GetState: handler returned no response and no error")
+			}
+			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.new_beneficiary_payment_input_card",
+			Subject:         "bank.agents.v1.NewBeneficiaryPayment.InputCard",
+			Method:          "InputCard",
+			Service:         "bank.agents.v1.NewBeneficiaryPayment",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.NewBeneficiaryPayment.InputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				InputCard(context.Context, *emptypb.Empty) (*v11.Card, error)
+			}); ok {
+				return o.InputCard(ctx, in)
+			}
+			return DefaultNewBeneficiaryPaymentInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "bank.agents.v1.new_beneficiary_payment_result_card",
+			Subject:         "bank.agents.v1.NewBeneficiaryPayment.ResultCard",
+			Method:          "ResultCard",
+			Service:         "bank.agents.v1.NewBeneficiaryPayment",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v11.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v11.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("bank.agents.v1.NewBeneficiaryPayment.ResultCard: request is %T, want %T", req, (*v11.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				ResultCard(context.Context, *v11.CallRef) (*v11.Card, error)
+			}); ok {
+				return o.ResultCard(ctx, in)
+			}
+			return DefaultNewBeneficiaryPaymentResultCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ServeResearchAssistant registers one micro endpoint per tool ResearchAssistant declares,
 // and one per card those tools serve.
 //
@@ -989,7 +1203,7 @@ const ContractVersion = "v0.1.0"
 // response returns and is garm's business, not the wire's. A hash that
 // moved when a read: clearance changed would mark every service
 // incompatible over a change that cannot break unmarshalling.
-const DescriptorHash = "a64580a43daba0d95380fc3c6da7d786a8e4c2659568f19227ea0e4a78639929"
+const DescriptorHash = "250772ddb8f9a5991dedf31e1225acacd69dabfefbfc7f9f70c2b1e983a98e4b"
 
 var CardGuardianTools = []toolbind.ToolRef{
 	{
@@ -1043,6 +1257,33 @@ var ConciergeTools = []toolbind.ToolRef{
 		Subject:         "bank.agents.v1.Concierge.GetRun",
 		Method:          "GetRun",
 		Service:         "bank.agents.v1.Concierge",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+}
+
+var NewBeneficiaryPaymentTools = []toolbind.ToolRef{
+	{
+		FQN:             "bank.agents.v1.new_beneficiary_payment",
+		Subject:         "bank.agents.v1.NewBeneficiaryPayment.Invoke",
+		Method:          "Invoke",
+		Service:         "bank.agents.v1.NewBeneficiaryPayment",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+	{
+		FQN:             "bank.agents.v1.new_beneficiary_payment_run",
+		Subject:         "bank.agents.v1.NewBeneficiaryPayment.GetRun",
+		Method:          "GetRun",
+		Service:         "bank.agents.v1.NewBeneficiaryPayment",
+		ContractVersion: ContractVersion,
+		DescriptorHash:  DescriptorHash,
+	},
+	{
+		FQN:             "bank.agents.v1.new_beneficiary_payment_state",
+		Subject:         "bank.agents.v1.NewBeneficiaryPayment.GetState",
+		Method:          "GetState",
+		Service:         "bank.agents.v1.NewBeneficiaryPayment",
 		ContractVersion: ContractVersion,
 		DescriptorHash:  DescriptorHash,
 	},

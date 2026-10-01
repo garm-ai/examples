@@ -1,6 +1,7 @@
 package bank_test
 
 import (
+	"maps"
 	"os"
 	"slices"
 	"testing"
@@ -200,13 +201,36 @@ func TestTheAgentHoldsTheSameRolesInClaimsAndPersonas(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &c); err != nil {
 		t.Fatal(err)
 	}
-	got := sortedCopy(c.Agents["support-assistant"].Roles)
-	want := sortedCopy(loadPersonas(t).Agents["support-assistant"].Roles)
-	if len(got) == 0 {
-		t.Fatal("auth/claims.yaml declares no roles for agent support-assistant")
+	// EVERY agent, not just the assistant, and widened on 2026-10-01 when the
+	// workflow agent arrived. Asserting one name left the gate vacuous for the
+	// other five: a role present in claims.yaml and absent from personas.yaml
+	// stops the dev IdP from starting at all, and the reverse — present in
+	// personas.yaml, absent from claims.yaml — is silent and makes the governed
+	// door resolve less authority than the direct one. The SET of keys is
+	// compared too, because an agent in one file and not the other is the same
+	// defect one level up.
+	personas := loadPersonas(t)
+	claimKeys := slices.Sorted(maps.Keys(c.Agents))
+	personaKeys := slices.Sorted(maps.Keys(personas.Agents))
+	if !slices.Equal(claimKeys, personaKeys) {
+		t.Fatalf("agent drift: claims.yaml declares %v, personas.yaml declares %v — "+
+			"an agent in one file and not the other has different authority on the "+
+			"governed and the devkit door", claimKeys, personaKeys)
 	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("agent roles drift: claims.yaml %v, personas.yaml %v — the governed and devkit doors would grant different authority", got, want)
+	if len(claimKeys) == 0 {
+		t.Fatal("auth/claims.yaml declares no agents at all")
+	}
+	for _, name := range claimKeys {
+		got := sortedCopy(c.Agents[name].Roles)
+		want := sortedCopy(personas.Agents[name].Roles)
+		if len(got) == 0 {
+			t.Errorf("auth/claims.yaml declares no roles for agent %s", name)
+			continue
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("agent %s roles drift: claims.yaml %v, personas.yaml %v — the "+
+				"governed and devkit doors would grant different authority", name, got, want)
+		}
 	}
 }
 

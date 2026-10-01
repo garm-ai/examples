@@ -130,6 +130,26 @@ users:
     subject: "customer:cust_ab12cd"
     roles: [retail-customer]
 
+  # The one persona who can run the new-beneficiary payment, and the reason she
+  # exists rather than a role being added to sam.
+  #
+  # The fold intersects: a run reaches the minimum of the agent's ceiling and
+  # whoever it acts for. That agent's four steps need `financial` at RESTRICTED
+  # with DESTRUCTIVE in the `payments` set (the payment), `kyc` in `compliance`
+  # (the screening) and `pii-contact` (the lookup) — and nobody above holds both
+  # halves. jdoe and sam hold payments-ops and no `kyc`; priya holds `kyc` and
+  # nothing financial. That is not an oversight to patch: screening.proto's whole
+  # point is that seniority is not need-to-know, and giving a first-line desk
+  # `kyc` to make a demo work would undo it.
+  #
+  # So this is a payments-operations clerk who is ALSO assigned to financial
+  # crime — three roles by assignment, in two segments, which is a real shape in
+  # a bank and a visible one here. She is not the approver of her own payment:
+  # the grant predicate excludes the run's own subject, so sam or jdoe approves.
+  nadia:
+    subject: "employee:nadia"
+    roles: [payments-ops, compliance-officer, compliance-contact]
+
 agents:
   # may_act_for is enforced when MINTING, and garm never sees it. garm folds a
   # delegation chain it is given and can only narrow it. Try
@@ -169,3 +189,14 @@ agents:
     subject: "agent:research-assistant"
     roles: [support-desk]
     may_act_for: [jdoe]
+
+  # The new-beneficiary payment. Same three roles as claims.yaml's agents:
+  # block, for the reason the assistant's comment gives — a role list that
+  # drifted would grant the devkit path and the governed path different
+  # authority for the same identity. may_act_for is nadia and nobody else: she
+  # is the only persona holding the union this graph needs, and tuples.yaml's
+  # can_invoke says the same thing on the STS path.
+  new-beneficiary-payment:
+    subject: "agent:new-beneficiary-payment"
+    roles: [payments-ops, compliance-officer, compliance-contact]
+    may_act_for: [nadia]

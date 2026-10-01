@@ -1,7 +1,7 @@
 # bank
 
 A proto tree shaped like a real bank's: four domains, eight tools, one shared
-taxonomy, five agents, three adopted packages — one public tool and two platform
+taxonomy, six agents, three adopted packages — one public tool and two platform
 services — and a deliberate demonstration of what happens when you put all of
 that in one catalogue.
 
@@ -11,7 +11,7 @@ three hundred engineers?**
 ```
 proto/
   bank/v1/          the taxonomy — which compartments and tool sets exist at all
-  bank/agents/v1/   the agents — the support assistant and four more
+  bank/agents/v1/   the agents — the support assistant, four more, and one workflow
   accounts/v1/      balances and customer details
   cards/v1/         card state, in PCI scope
   payments/v1/      moving money
@@ -660,11 +660,12 @@ change — so two things keep it honest:
 `GetRun` as two ordinary governed tools and never reads the
 `(garm.agent.v1.agent)` annotation at all — it is agent-blind by design, so a
 change to what an agent runs as can never affect what garmd itself decides to
-serve. `mise run check-bank` builds the full thirty-one-tool catalogue (the
+serve. `mise run check-bank` builds the full thirty-four-tool catalogue (the
 eight tools the bank already had, `web.v1.fetch_page` adopted from
 `garm-ai/tools`, the eight of `garm.tasks.v1` adopted from
 `garm-ai/contracts`, the four of `garm.artefacts.v1` adopted from
-`garm-ai/artefactd`, plus `Invoke` and `GetRun` for each of the five agents)
+`garm-ai/artefactd`, plus `Invoke` and `GetRun` for each of the six agents and
+`GetState` for the one workflow agent)
 and asserts only that adding the agents does not make the bank unmountable. It says nothing about whether an agent runner exists to
 serve `SupportAssistant` — nothing in this repository implements it, and the
 generated `SupportAssistantHandler` interface in
@@ -812,8 +813,80 @@ is program plan §7 item 22's open item, not this tree's.
 
 What the start card shows each persona follows from the doors: jdoe sees the
 assistant, the guardian and the research assistant, ada the concierge, priya
-the screen, and a 404 from `GET /agents/{name}/card` for any other pairing
-is the answer working.
+the screen, nadia the new-beneficiary payment, and a 404 from
+`GET /agents/{name}/card` for any other pairing is the answer working.
+
+## The sixth agent is a GRAPH: `new_beneficiary_payment`
+
+`proto/bank/agents/v1/new_beneficiary_payment.proto` is the tree's only
+`MODE_WORKFLOW` agent, and the only one with no prompt and no model — A8
+refuses both in this mode, because a graph of tool calls makes no generation
+call of its own. The model that writes the compliance assessment belongs to
+the `compliance_screen` agent, which this graph invokes **as a step**.
+
+The use case is why the shape fits: a payment to a beneficiary the bank has
+not paid before. Screening a new beneficiary before money moves is a legal
+requirement in most jurisdictions, so the sequence is known in advance and a
+regulator will ask what ran and in what order — which the descriptor answers
+and a transcript does not.
+
+Five steps, four tools and four edges:
+
+```
+customer ──▶ screen ──(requires_review)──▶ assess ──▶ pay_reviewed
+                  └───────────────────────────────▶ pay_clean
+```
+
+- **`customer`** calls `accounts.v1.get_customer` and lands `display_name`.
+- **`screen`** calls `screening.v1.screen_party` and lands two fields: the
+  flag the branch turns on, and a count. Neither is a name.
+- **`assess`** calls `bank.agents.v1.compliance_screen` — another agent, as a
+  tool FQN like any other — and lands its run id as the citation.
+- **`pay_reviewed`** and **`pay_clean`** both call
+  `payments.v1.initiate_payment`, which is `MODE_GRANT`, so either one parks
+  the run for a second person.
+
+**THE TWO PAYMENT STEPS ARE THE LESSON, and they are not duplication.** One
+shared `pay` step would be reachable straight from `screen` and via `assess`.
+`compliance_run_id` is written by `assess` alone, which would then not dominate
+the shared step, so lint rule A7 refuses to read it there:
+
+```
+error: A7: bank.agents.v1.NewBeneficiaryPayment: step "pay" `with[reference]`
+reads state.compliance_run_id, which is written by [assess] — and at least one
+path to here does not pass through [assess], so the field would silently hold
+its zero value.
+```
+
+That refusal is the point. Without it the field would hold its zero value on
+the clean path and the payment reference would read `INV-1 / compliance ` with
+nothing after it — a silent wrong answer, which is worse than an error. The
+split that follows reads better than what it replaces: a screened payment and
+an unscreened one are different acts, and the annotation now says so.
+
+**The state is a published message.** `GetState` declares its type, so protoc
+checks it and no string can be misspelled, and publishing it brings the state
+under the same field policies as everything else — garmd projects the reply per
+caller. A caller holding `financial` reads the amount and the beneficiary; a
+caller without `kyc` sees neither `requires_review` nor `match_count`. There is
+**no `SetState`**: the graph is the only writer, and A1 refuses the method.
+
+`match_count` is the tree's one declared downgrade. It is written as
+`size(response.matches)`, and `matches` reads at `RESTRICTED` under `kyc`, so
+A11 would demand `RESTRICTED` here. `(garm.agent.v1.derives)` records the
+reasoning a machine can check: a count is routing information and not the
+names. Note that `derives.from` is written in the expression's own vocabulary
+— `response.matches` — because A11 compares it against the reads it found.
+
+**`nadia` is the only persona who can run it**, and she was added for it. The
+fold intersects, so a run reaches the minimum of the agent's ceiling and
+whoever it acts for — and no existing persona held both halves: jdoe and sam
+hold `payments-ops` and no `kyc`, priya holds `kyc` and nothing financial.
+That separation is deliberate (`screening.proto`: seniority is not
+need-to-know), so the answer is a persona assigned to both, not a widening of
+somebody who should not be. No new ROLE was needed: `payments-ops` plus
+`compliance-officer` plus `compliance-contact` is exactly the agent's
+`principal` block.
 
 ## Adopting a tool is an entry in the manifest: `garm.tasks.v1`
 

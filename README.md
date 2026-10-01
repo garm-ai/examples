@@ -210,7 +210,7 @@ both generates connect code and declares a tool.
 ## bank
 
 A proto tree shaped like a real bank's — four tool domains, a shared
-taxonomy, five agents, three adopted packages — and the answer to the question
+taxonomy, six agents, three adopted packages — and the answer to the question
 the calculator cannot ask: does this scale to three hundred engineers?
 Per-principal projection, the mount refusal on an ungated payment tool, what a
 grant binds, what a policy change looks like in review. Its catalogue is

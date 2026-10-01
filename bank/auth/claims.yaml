@@ -226,3 +226,29 @@ agents:
   # financial tool. What the agent may READ from the web is decided by the
   # fetch service's allowlist and the manifest's guard, never by this file.
   research-assistant: { roles: [support-desk] }
+
+  # The new-beneficiary payment: the bank's one WORKFLOW agent, and the only
+  # entry here that needs THREE roles. It is the union of what its four steps
+  # require and NO NEW ROLE WAS ADDED FOR IT, which is worth saying plainly
+  # because adding one was the obvious move: payments-ops is RESTRICTED,
+  # `financial`, DESTRUCTIVE and the `payments` set, which initiate_payment
+  # needs; compliance-officer is `kyc` in the `compliance` set, which
+  # screen_party needs; compliance-contact is the `pii-contact` get_customer
+  # needs. The union is exactly new_beneficiary_payment.proto's `principal`
+  # block, and it has to stay that way or lint rule A3 and this file disagree
+  # about what the agent is.
+  #
+  # IT IS THE SAME THREE ROLES AS compliance-screen PLUS payments-ops, which is
+  # the structure of the graph showing through the policy: this agent invokes
+  # that one as a step, so it must be able to reach everything that agent
+  # reaches, and then pay.
+  #
+  # AND THE FOLD IS WHY NO EXISTING PERSON COULD RUN IT. Delegation intersects,
+  # so a run reaches the minimum of this block and whoever it acts for — and
+  # before this change nobody held both halves: jdoe and sam hold payments-ops
+  # and no `kyc`, priya holds `kyc` and nothing financial. That separation was
+  # deliberate (screening.proto: seniority is not need-to-know), so the answer
+  # is a persona who holds both by assignment rather than a widening of
+  # somebody who should not. personas.yaml adds `nadia` and tuples.yaml puts
+  # her in both segments; see the note there.
+  new-beneficiary-payment: { roles: [payments-ops, compliance-officer, compliance-contact] }

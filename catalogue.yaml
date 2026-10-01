@@ -32,7 +32,7 @@ source: garm-ai/examples/bank
 
 include:
   # The bank's own declarations: accounts, cards, payments, screening, its
-  # taxonomy and its five agents. Nothing adopted lives here any more.
+  # taxonomy and its six agents. Nothing adopted lives here any more.
   - path: bank/proto
 
   # The task queue's eight tools, served by tasksd. A platform contract the
@@ -43,7 +43,7 @@ include:
   # which module it came from, and bank/third_party/proto is the other half of
   # it.
   - module: github.com/garm-ai/contracts
-    version: v0.5.0
+    version: v0.6.0-rc.1
     packages: [garm.tasks.v1]
 
   # The web fetcher the research assistant calls. This module has no Go the
@@ -97,6 +97,7 @@ include:
     packages: [garm.artefacts.v1]
 
 # Where an agent's prompts.*.path resolves from. The bank's five prompts are
+# its five REACT agents' — the workflow agent has none, and A8 refuses it one.
 # bank/prompts/*.md, and lint rule A2 verifies each against the sha256 its
 # annotation pins — so a manifest pointing at the wrong root fails the build
 # rather than publishing an unverified prompt.

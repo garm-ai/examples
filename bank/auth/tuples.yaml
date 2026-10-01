@@ -55,6 +55,10 @@ can_invoke:
   # outside the tenant, and it reads for a first-line desk.
   - principal: employee:jdoe
     agent: agent:research-assistant
+  # nadia, for the workflow agent. One principal again, and this one is the
+  # only persona holding the union that graph needs — see personas.yaml.
+  - principal: employee:nadia
+    agent: agent:new-beneficiary-payment
 
 # CanRun(runner, agent): may this RUNNER execute this agent?
 #
@@ -79,6 +83,8 @@ can_run:
     agent: agent:compliance-screen
   - runner: runner:agentd
     agent: agent:research-assistant
+  - runner: runner:agentd
+    agent: agent:new-beneficiary-payment
 
 # HandledBy(employee, customer): is this employee the one assigned to this
 # customer? Asked only when an employee acts on a customer's behalf — the
@@ -114,3 +120,14 @@ in_segment:
     segment: compliance-team
   - principal: employee:sam
     segment: payments-team
+  # nadia is in TWO segments, and the union of their roles is what the
+  # new-beneficiary payment needs: payments-team brings payments-ops,
+  # compliance-team brings compliance-officer and compliance-contact.
+  # personas.yaml expresses the same fact by listing three roles. The two files
+  # have to agree or the governed door (the STS and this file) would resolve
+  # less than the direct one (devkit and personas.yaml), and the workflow agent
+  # would complete through one door and stall on the other.
+  - principal: employee:nadia
+    segment: payments-team
+  - principal: employee:nadia
+    segment: compliance-team

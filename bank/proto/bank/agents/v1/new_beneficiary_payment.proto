@@ -1,0 +1,490 @@
+// The new-beneficiary payment: the bank's first WORKFLOW agent.
+//
+// The use case: a payment to a beneficiary the bank has not paid before.
+// Screening a new beneficiary before money moves is a legal requirement in most
+// jurisdictions, which makes it the right shape for this mode — the sequence is
+// known in advance, a regulator will ask what ran and in what order, and the
+// answer should be readable from the descriptor rather than reconstructed from
+// logs.
+//
+// FOUR EXPRESSION SITES, each reading exactly one thing:
+//
+//   initial:  reads `input`   writes state   — the ONLY place the request enters
+//   with:     reads `state`                  — builds a tool's request
+//   set:      reads `state` + `response`     writes state — lands a reply
+//   when:     reads `state`                  — an edge predicate
+//
+// So the only subject of an expression is the state, which is what lets lint
+// answer one question uniformly: is this field guaranteed to have been written
+// by the time this step runs? See the note above `pay_clean`.
+//
+// AND THE STATE IS A PUBLISHED MESSAGE. `GetState` at the foot of the service
+// declares its type — so protoc checks it and no string can be misspelled — and
+// publishing it brings the state under the same field policies as everything
+// else. There is no SetState: the graph is the only writer, and A1 refuses the
+// method outright.
+syntax = "proto3";
+
+package bank.agents.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1";
+
+// What a caller hands the agent. Read by `initial` and by nothing else.
+//
+// NOTE what is absent: no idempotency key. `initiate_payment.idempotency_key`
+// is the runner's (`<run id>-<dispatch seq>`), a `with:` naming it is a lint
+// error (A7), and a caller cannot supply one either.
+message NewBeneficiaryPaymentRequest {
+  // Requests are never sanitised on the way in — min_clearance on the RPC
+  // governs who may call at all — so PUBLIC here says nothing about who may
+  // start a run. mask rather than omit because omit on a presence-less scalar
+  // makes "redacted" and "empty" the same value (L6). Same shape as
+  // ComplianceScreenRequest, for the same reasons.
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  // The bounds are the TOOLS' bounds, not tighter ones. accounts.v1's
+  // get_customer accepts `^cust_[a-z0-9]{6,32}$` and payments.v1 accepts
+  // `^acct_[a-z0-9]{6,32}$`; a door that refused a 10-character customer id
+  // the tool behind it would have accepted would be this agent inventing a
+  // narrower bank than the one it calls.
+  string customer_id = 1 [(buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^cust_[a-z0-9]{6,32}$"];
+
+  string source_account_id = 2 [(buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^acct_[a-z0-9]{6,32}$"];
+
+  // The beneficiary as the customer named them. This is the string that gets
+  // screened, so it is bounded: an unbounded name is a screening query
+  // somebody else controls. The upper bound is screen_party's own (200) less a
+  // margin, and the lower bound is screen_party's exactly: a name this door
+  // accepted and the screening tool refused would fail mid-graph, after the
+  // customer lookup had already happened.
+  string beneficiary_name = 3 [(buf.validate.field).required = true,
+    (buf.validate.field).string = { min_len: 2, max_len: 140 }];
+
+  string beneficiary_iban = 4 [(buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^[A-Z]{2}[0-9]{2}[A-Z0-9]{1,30}$"];
+
+  // An explicit policy and `optional`, for exactly the two reasons
+  // payments.v1.InitiatePaymentRequest gives on its own amount field: L5
+  // refuses `mask` on an int64 — there is no half of a number worth showing —
+  // so the message default cannot apply here, and `omit` on a singular scalar
+  // needs presence or L6 refuses it in turn. The read grade is the message
+  // default's; only the redaction differs.
+  optional int64 amount_minor_units = 5 [
+    (garm.tool.v1.field_policy) = { read: CLEARANCE_PUBLIC on_deny: { omit: {} } },
+    (buf.validate.field).required = true,
+    (buf.validate.field).int64 = { gt: 0, lte: 1000000000 }];
+
+  string currency_code = 6 [(buf.validate.field).required = true,
+    (buf.validate.field).string.pattern = "^[A-Z]{3}$"];
+
+  // 100 AND NOT 140, AND THE ARITHMETIC IS THE REASON.
+  //
+  // initiate_payment.reference is capped at 140. `pay_reviewed` sends
+  // `reference + " / compliance " + <run id>`: fourteen characters of
+  // separator and a 26-character ULID, so 100 is the largest value here that
+  // cannot overflow the tool's own bound. A door that accepted 140 would
+  // produce a request the scheme-facing tool refuses, on the reviewed branch
+  // only, after screening had already run.
+  string reference = 7 [(buf.validate.field).string.max_len = 100];
+}
+
+// THE WORKFLOW'S STATE. A proto message like any other, which is the whole
+// point: its shape is in the descriptor, a reviewer reads it in the diff, and
+// every expression in the graph is type-checked against it.
+//
+// It is NOT keyed by step. A step reads `state.beneficiary_iban`, not
+// `steps.lookup.output.iban`, so renaming or rerouting a step does not break a
+// downstream expression — the data outlives the graph's shape.
+//
+// FIELD POLICIES APPLY HERE, because `GetState` below publishes this message and
+// garmd projects it per caller like any other governed reply. A11 checks the
+// rest: a field written from a governed source inherits its protection, and a
+// deliberate downgrade is declared with a reason.
+//
+// EVERY FIELD IS `optional`, AND THAT IS NOT STYLE. This message is a governed
+// tool's REPLY, so L6 walks it: `omit` on a singular scalar with no presence
+// makes "redacted" and "empty" the same value on the wire, and the rule refuses
+// it. The same reasoning garm.agent.v1.RunRef records about its own run_id.
+message NewBeneficiaryPaymentState {
+  // INTERNAL rather than PUBLIC as the floor, because the weakest thing in
+  // here is still a customer identifier and an account number. Each field that
+  // needs more says so below; a field that falls through to this default is one
+  // whose disclosure a first-line desk could already make.
+  //
+  // It is also what A11 needs from the three fields written out of governed
+  // replies: accounts.v1.GetCustomerResponse, payments.v1.InitiatePaymentResponse
+  // and garm.agent.v1.RunStatus all grade at INTERNAL or below, so the default
+  // alone carries display_name, payment_id and the run id without any field
+  // here having to repeat a grade.
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_INTERNAL
+    on_deny: { omit: {} }
+  };
+
+  // Written by `initial` from the request, so always readable. That is what an
+  // initial value BUYS: a field written at entry is written on every path.
+  // These come from the CALLER, not from a governed tool, so A11 has no source
+  // policy to propagate: the policies here are the author's own judgement about
+  // a message that is now published.
+  optional string customer_id       = 1;
+  optional string source_account_id = 2;
+
+  // The beneficiary as the customer named them: a third party's name.
+  optional string beneficiary_name = 3 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_INTERNAL
+    compartments: ["pii-contact"]
+    on_deny: { omit: {} }
+  }];
+
+  optional string beneficiary_iban = 4 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["financial"]
+    on_deny: { omit: {} }
+  }];
+
+  optional int64 amount_minor_units = 5 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_INTERNAL
+    compartments: ["financial"]
+    on_deny: { omit: {} }
+  }];
+
+  optional string currency_code = 6;
+  optional string reference     = 7;
+
+  // Written by `customer` from `accounts.v1.GetCustomerResponse.display_name`.
+  // That field carries no field_policy of its OWN, but its message defaults to
+  // CLEARANCE_INTERNAL — so A11 has something to propagate after all, and the
+  // message default above is what satisfies it. The clean case is not "no
+  // policy"; it is "a policy this message already meets".
+  optional string customer_display_name = 8;
+
+  // Written by `screen` from `ScreenPartyResponse.requires_review`, which reads
+  // at CONFIDENTIAL under `kyc`. A11 propagates that exactly, so this is not a
+  // choice the author makes: it is inherited, and weakening it is an error.
+  optional bool requires_review = 9 [(garm.tool.v1.field_policy) = {
+    read: CLEARANCE_CONFIDENTIAL
+    compartments: ["kyc"]
+    on_deny: { omit: {} }
+  }];
+
+  // Written by `screen` as `size(response.matches)`. `matches` reads at
+  // RESTRICTED under `kyc`, so A11 would demand RESTRICTED here. THIS IS THE
+  // DECLARED DOWNGRADE: a count is routing information and not the names — the
+  // same judgement the bank already made one grade up when it graded
+  // `requires_review` below `matches` and said why in a comment. `derives`
+  // records that reasoning where a machine can check it.
+  //
+  // `from` is written in the expression's own vocabulary — `response.matches`,
+  // the thing the `set` actually reads — because A11 compares it against the
+  // reads it found rather than against a type name. An annotation naming
+  // `screening.v1.ScreenPartyResponse.matches` reads better and exempts
+  // nothing: it is a string the rule never matches.
+  optional int32 match_count = 10 [
+    (garm.agent.v1.derives) = {
+      from: "response.matches"
+      reason: "A count, not the parties. Routing needs to know how many "
+              "potential matches came back and never who they were; the names "
+              "stay at RESTRICTED on screening.v1.ScreenPartyResponse.matches, "
+              "where an analyst reads them."
+    },
+    (garm.tool.v1.field_policy) = {
+      read: CLEARANCE_CONFIDENTIAL
+      compartments: ["kyc"]
+      on_deny: { omit: {} }
+    }
+  ];
+
+  // Written by `assess` ONLY. This is the field that forces the graph to split
+  // — see `pay_clean`.
+  optional string compliance_run_id = 11;
+
+  // Written by whichever payment step runs.
+  optional string payment_id = 12;
+}
+
+service NewBeneficiaryPayment {
+  // Who is answerable. The payments platform, because the ACT this agent
+  // performs is a payment and the refusal a reviewer will chase is
+  // initiate_payment's. Financial crime owns the screening tool and the
+  // compliance_screen agent this graph invokes, and each names its own owner
+  // on its own service — which is the point of the annotation being per
+  // service rather than per catalogue.
+  option (garm.meta.v1.owner) = {
+    team: "payments-platform"
+    contact: "#payments-oncall"
+  };
+
+  option (garm.agent.v1.agent) = {
+    mode: MODE_WORKFLOW
+
+    // NO `state_type`. The state's type is `GetState`'s output type at the foot
+    // of this service, so protoc checks it and there is no string to misspell.
+
+    // THE REQUEST ENTERS HERE AND NOWHERE ELSE. Every step below reads `state`,
+    // so there is one place to look for how a caller's values get in, and the
+    // dominator analysis has one uniform subject.
+    //
+    // Everything written here is written before any step runs, so all seven are
+    // unconditionally readable throughout the graph.
+    initial: [
+      { key: "customer_id"        value: "input.customer_id" },
+      { key: "source_account_id"  value: "input.source_account_id" },
+      { key: "beneficiary_name"   value: "input.beneficiary_name" },
+      { key: "beneficiary_iban"   value: "input.beneficiary_iban" },
+      { key: "amount_minor_units" value: "input.amount_minor_units" },
+      { key: "currency_code"      value: "input.currency_code" },
+      { key: "reference"          value: "input.reference" }
+    ]
+
+    // The union of what the four steps require: RESTRICTED and `financial` for
+    // the payment, `kyc` for screening, `pii-contact` for the lookup. A CEILING
+    // and not a grant — the fold takes the minimum of this and whoever the run
+    // acts for, so this block decides only that the AGENT is not the reason a
+    // call is refused.
+    principal: {
+      clearance: CLEARANCE_RESTRICTED
+      compartments: ["financial", "kyc", "pii-contact"]
+    }
+
+    // NO `prompts` and NO `model`, and A8 refuses both here. A graph of tool
+    // calls makes no generation call of its own. The model that writes the
+    // compliance assessment belongs to the compliance_screen agent and is
+    // declared in ITS annotation.
+    bounds: {
+      max_steps: 8
+      max_tokens: 200000
+      max_tool_calls: 8
+      // Covers the CHILD run's wall-clock too: `assess` invokes an agent and
+      // the parent waits for it.
+      timeout: { seconds: 900 }
+    }
+
+    // The allowlist stays the single authority on what this agent may call. A7
+    // holds every step's `tool:` against it, so the graph can only order what
+    // is already permitted, never widen it.
+    //
+    // The third entry is another AGENT, and nothing about it is special: a tool
+    // FQN like the others, governed by garmd like the others, with the depth
+    // counter bounding the nesting.
+    tools: [
+      { fqn: "accounts.v1.get_customer" },
+      { fqn: "screening.v1.screen_party" },
+      { fqn: "bank.agents.v1.compliance_screen" },
+      { fqn: "payments.v1.initiate_payment",
+        // A guard is still a guard. The graph decides WHETHER this step runs;
+        // the guard decides whether the call may be made, evaluated on the
+        // arguments after `with` has built them.
+        guard: "args.amount_minor_units <= 500000" }
+    ]
+
+    steps: [
+      // Confirms the payer exists, and lifts one field the assessment needs.
+      { id: "customer"
+        tool: "accounts.v1.get_customer"
+        with: [ { key: "customer_id" value: "state.customer_id" } ]
+        set:  [ { key: "customer_display_name" value: "response.display_name" } ] },
+
+      // The beneficiary, screened. Two fields land: the flag the branch turns
+      // on, and a count. Neither is a name.
+      { id: "screen"
+        tool: "screening.v1.screen_party"
+        with: [ { key: "full_name" value: "state.beneficiary_name" } ]
+        set:  [
+          { key: "requires_review" value: "response.requires_review" },
+          { key: "match_count"     value: "size(response.matches)" }
+        ] },
+
+      // THE AGENT STEP, reached only when screening asked for review. It turns
+      // structured match data into prose a human approver can read, which is
+      // the one thing here a model is better at than a template — and the only
+      // place a model appears.
+      //
+      // `with` composes the agent's sentence from state with CEL string
+      // concatenation. `set` lifts the run id: at run time `response` is the
+      // CHILD's garm.agent.v1.RunStatus (the runner awaits the nested run
+      // rather than taking Invoke's reference as the answer), and its `result`
+      // is a google.protobuf.Any that CEL cannot usefully traverse — so the
+      // citation is the run id and not the assessment text. See the design's
+      // 7.2.
+      { id: "assess"
+        tool: "bank.agents.v1.compliance_screen"
+        with: [
+          { key: "customer_id" value: "state.customer_id" },
+          { key: "party_name"  value: "state.beneficiary_name" },
+          { key: "request"
+            value: "'Screening flagged ' + state.beneficiary_name + "
+                   "' as a new beneficiary for ' + "
+                   "state.customer_display_name + ' with ' + "
+                   "string(state.match_count) + ' potential matches. "
+                   "Summarise whether this payment should proceed.'" }
+        ]
+        set:  [ { key: "compliance_run_id" value: "response.run_id" } ] },
+
+      // The reviewed path's payment. It MAY read `compliance_run_id` because
+      // `assess` dominates it: every path reaching this step passed through
+      // `assess`. The reference carries the citation, so the approver's card
+      // and the ledger both link the assessment to the money.
+      { id: "pay_reviewed"
+        tool: "payments.v1.initiate_payment"
+        with: [
+          { key: "source_account_id"  value: "state.source_account_id" },
+          { key: "beneficiary_iban"   value: "state.beneficiary_iban" },
+          { key: "amount_minor_units" value: "state.amount_minor_units" },
+          { key: "currency_code"      value: "state.currency_code" },
+          { key: "reference"
+            value: "state.reference + ' / compliance ' + state.compliance_run_id" }
+        ]
+        set:  [ { key: "payment_id" value: "response.payment_id" } ] },
+
+      // The clean path's payment, and THE WRITE-DOMINATOR RULE IS WHY THIS IS A
+      // SECOND STEP.
+      //
+      // One shared `pay` step would be reachable straight from `screen` and via
+      // `assess`. `compliance_run_id` is written by `assess` alone, which would
+      // not dominate the shared step, so A7 would refuse to read it there — and
+      // that refusal is the point. Without it the field would hold its ZERO
+      // VALUE on the clean path and the payment reference would read
+      // "INV-1 / compliance " with nothing after it: a silent wrong answer,
+      // which is worse than an error.
+      //
+      // Splitting is the restructuring that follows, and it reads better than
+      // what it replaces: a screened payment and an unscreened one are
+      // different acts, and the annotation now says so where a reviewer sees it.
+      { id: "pay_clean"
+        tool: "payments.v1.initiate_payment"
+        with: [
+          { key: "source_account_id"  value: "state.source_account_id" },
+          { key: "beneficiary_iban"   value: "state.beneficiary_iban" },
+          { key: "amount_minor_units" value: "state.amount_minor_units" },
+          { key: "currency_code"      value: "state.currency_code" },
+          { key: "reference"          value: "state.reference" }
+        ]
+        set:  [ { key: "payment_id" value: "response.payment_id" } ] }
+    ]
+
+    // DECLARATION ORDER IS THE TIE-BREAK: after a step completes its outgoing
+    // edges are tried in this order and the first true predicate wins, so
+    // behaviour is a property of this file rather than of a map iteration. The
+    // conditional edge therefore comes first.
+    //
+    // A6 requires that a step with any outgoing edge has at least one
+    // UNCONDITIONAL edge, so "no predicate matched" cannot arise. Without it a
+    // typo in a `when:` ends a run early and silently.
+    //
+    // `pay_reviewed` and `pay_clean` have no outgoing edges, which is how a step
+    // is terminal.
+    edges: [
+      { from: "customer" to: "screen" },
+
+      { from: "screen" to: "assess"    when: "state.requires_review" },
+      { from: "screen" to: "pay_clean" },
+
+      { from: "assess" to: "pay_reviewed" }
+    ]
+  };
+
+  rpc Invoke(NewBeneficiaryPaymentRequest) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "new_beneficiary_payment"
+      title: "Pay a new beneficiary"
+      description:
+        "Start a governed payment to a beneficiary this account has not paid "
+        "before. The beneficiary is screened before any money moves, a flagged "
+        "party is assessed in writing, and the payment itself waits for a "
+        "second person. Returns a run reference immediately."
+      verb: VERB_WRITE
+      min_clearance: CLEARANCE_RESTRICTED
+      audience: [AUDIENCE_PERSON]
+      sets: ["payments"]
+      compartments: ["financial"]
+      // Two Invokes are two runs, so starting one is not idempotent. The
+      // DESTRUCTIVE act inside the graph declares its own effects, its own
+      // grant and its own audit on payments.v1.initiate_payment; this door
+      // starts a run and the run is what reaches the scheme.
+      effects: { idempotent: false }
+      guidance: {
+        when_to_use: "A payments operator is paying a beneficiary this account "
+                     "has not paid before and the screening has to be on the "
+                     "record before the money moves."
+        when_not_to_use: "Not for a beneficiary already paid from this account — "
+                         "use initiate_payment directly. NEVER relay a screening "
+                         "match, or the fact that screening ran, to the customer."
+        on_error: "A grant-required answer on the payment step is not a failure: "
+                  "the run is parked and a second person has to approve it. "
+                  "Read the run rather than starting another one."
+      }
+    };
+  }
+
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "new_beneficiary_payment_run"
+      title: "Read a new-beneficiary-payment run"
+      description:
+        "The state and, once finished, the result of one run. Answers "
+        "not-found for a run the caller did not start."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_RESTRICTED
+      audience: [AUDIENCE_PERSON]
+      sets: ["payments"]
+      compartments: ["financial"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "After Invoke, to see where the run has reached."
+        when_not_to_use: "Do not poll faster than once a second. Every poll is "
+                         "a governed call and a ledger row."
+      }
+    };
+  }
+
+  // THIS METHOD DECLARES THE STATE'S TYPE, and publishing it is what makes the
+  // state governed rather than invisible working memory: the reply is projected
+  // per caller like any other, so the field policies above decide who sees the
+  // beneficiary, the amount and the screening outcome.
+  //
+  // The method-level floor matches GetRun's — a caller who may read the run may
+  // ask for its working set — and the per-field work is done by the policies,
+  // which is how every other message in this tree is governed. A caller holding
+  // `financial` but not `kyc` reads the amount and the beneficiary and sees
+  // neither `requires_review` nor `match_count`.
+  //
+  // THERE IS NO SetState. The graph is the only writer. A method that mutated a
+  // live run's working set would be reachable by a caller, or by a model through
+  // some other agent, and would destroy both the determinism and the audit trail
+  // that are the reasons to choose this mode over react.
+  rpc GetState(garm.agent.v1.RunRef) returns (NewBeneficiaryPaymentState) {
+    option (garm.tool.v1.tool) = {
+      name: "new_beneficiary_payment_state"
+      title: "Read a new-beneficiary-payment run's state"
+      description:
+        "The working set of one run: what was looked up, what screening "
+        "returned, and which payment was raised. Projected to the caller's "
+        "clearance and compartments. Answers not-found for a run the caller "
+        "did not start."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_RESTRICTED
+      audience: [AUDIENCE_PERSON]
+      sets: ["payments"]
+      compartments: ["financial"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "To see what a run has established so far: the customer it "
+                     "looked up, what screening returned, and the payment it "
+                     "raised."
+        when_not_to_use: "Not a substitute for GetRun. This is the working set, "
+                         "not the outcome."
+      }
+    };
+  }
+}
