@@ -180,16 +180,48 @@ roles:
     tool_sets: [triage]
 
   retail-customer:
-    # Deliberately no tool_sets: this catalogue declares no self-service set
-    # yet, so a customer's own token reaches whatever it exposes at this
-    # ceiling rather than a narrower slice. Confining a customer to their OWN
-    # accounts (never another customer's) is `account.can_read` in model.fga
-    # — a per-record relation this policy cannot express and does not try to.
-    # Minting this role for `kind: customer` before that relation is enforced
-    # is a real clearance window, not a hypothetical one: see auth/README.md.
+    # SCOPED, AND IT USED TO NAME NO SETS AT ALL. That omission read as "a
+    # customer is confined to whatever this ceiling exposes" and meant the
+    # opposite: garmd's `inScope` treats a nil scope as UNSCOPED — the full
+    # catalogue the principal is otherwise entitled to — because a token that
+    # says nothing about scope has not scoped itself to nothing. So this role
+    # reached every tool in the whole composed catalogue that a customer's
+    # arithmetic satisfies, and the composed catalogue is larger than bank/
+    # proto: `garm.tasks.v1.list_tasks`, `get_task` and `approval_card` are
+    # VERB_READ at CLEARANCE_PUBLIC with NO compartments, so INTERNAL ≥ PUBLIC,
+    # READ matches, nothing is needed, and an unscoped session reached a
+    # `triage` tool. That is the STAFF APPROVAL QUEUE. Worse, the queue's row
+    # predicate did not save it: tasksd sets NotRequester to the viewer's
+    # subject for list_tasks — the four-eyes filter EXCLUDES your own tasks
+    # rather than restricting you to them — so a customer saw precisely the
+    # tasks they had not raised, which are the staff payment approvals.
+    # Verified on the plane: ada's list_tasks answered HTTP 200 before this
+    # change and garmd's not_found after it.
+    #
+    # `self-service` is the five tools a customer legitimately needs and no
+    # others: the concierge door and `concierge_run`, plus the three READ tools
+    # the concierge may call — get_customer, get_balance, get_payment_status.
+    # Those three are in the set because tool sets FOLD BY INTERSECTION, so a
+    # run acting for a customer can never be scoped wider than the customer's
+    # own token: this role's scope is the floor of every concierge run, and a
+    # set that left them out would empty the agent's allowlist. They cost
+    # nothing — this role already held `financial` and `pii-contact` at
+    # INTERNAL with READ and already reached all three, unscoped.
+    #
+    # EVERY NAME IN THIS SET IS GRANTED TO THE WHOLE CUSTOMER POPULATION, which
+    # is why `artefacts` is not here (adopting garm.artefacts.v1 must not make a
+    # disclosure decision for anybody — see catalogue.yaml), why no staff
+    # agent's GetRun is, and why nothing in `triage` is.
+    #
+    # THIS CLOSES THE TOOL-SET HALF AND NOT THE PER-RECORD HALF. Confining a
+    # customer to their OWN accounts, never another customer's, is
+    # `account.can_read` in model.fga — a per-record relation this policy cannot
+    # express, which nothing in this example evaluates, and which the five tools
+    # above still need. See auth/README.md.
     clearance: INTERNAL
     compartments: [financial, pii-contact]
     verbs: [READ]
+    tool_sets: [self-service]
 
 # Which segment grants which roles. Membership itself comes from OpenFGA.
 # A principal holding roles from more than one segment gets the UNION: the
@@ -239,9 +271,12 @@ agents:
   # The concierge: the customer's own ceiling and nothing above it. One role,
   # the one the customer holds, so the fold against a customer's token is
   # the identity — the agent brings nothing to the delegation the customer
-  # did not already have. No tool_sets, like the role: a customer's session
-  # is unscoped, and concierge.proto's door declares no sets for the same
-  # reason.
+  # did not already have. That now includes the SCOPE: retail-customer names
+  # `self-service`, so this agent's own session is scoped to it too, and the
+  # intersection of the two is `self-service`. It has to be: a scope the agent
+  # did not hold would be dropped by the fold anyway, and the set deliberately
+  # contains the three tools concierge.proto's allowlist names so that the run
+  # can still make them.
   concierge: { roles: [retail-customer] }
 
   # The compliance screen: screen_party and get_customer. compliance-officer

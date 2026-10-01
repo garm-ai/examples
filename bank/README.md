@@ -109,7 +109,11 @@ declares the set its own tools name costs its adopter nothing**, which is the
 difference between these two and the taxonomy above: the taxonomy exists because
 *this tree's* protos name its words. The catalogue merges identical declarations
 of one name and refuses different ones (L29), and today the four files share
-none: the compartment count is still seven and the tool sets are seven.
+none: the compartment count is still seven and the tool sets are **eight**. The
+eighth is `self-service`, and it is in `bank/v1/taxonomy.proto` for the reason
+the paragraph above gives about which file a name belongs in — *this tree's*
+protos name it, no adopted package does, and `tools/taxonomy/v1` has to stay a
+verbatim copy. `auth/README.md` says what it contains and why it exists.
 
 Each domain imports it even though it references no symbol from it. That is
 not tidiness — without the import the taxonomy is not in the domain's
@@ -700,8 +704,11 @@ needs `RESTRICTED` and `DESTRUCTIVE`, the agent's principal is the
 `retail-customer` ceiling (`INTERNAL`, `financial`, `pii-contact`, `READ`),
 and lint rule A3 refuses an agent that lists a tool it could never call. Its
 door is `VERB_READ` — a customer's token holds no other verb — and declares
-no sets, which is what makes it reachable by a customer's unscoped session
-and by no staff catalogue.
+`sets: ["self-service"]`, the set `retail-customer` names and no staff role
+does. It used to declare **no** sets, on the reading that an unscoped customer
+reaches a set-less tool and no staff catalogue does; that was true and was the
+wrong half of the problem, because unscoped is the *widest* a token can be. See
+`auth/README.md`.
 
 **`compliance-screen`** (`ComplianceScreen`, owner `financial-crime`). priya
 may invoke it. It calls `get_customer` to confirm which customer a screening
@@ -1018,8 +1025,17 @@ did — `list_tasks`, `get_task`, `claim_task`, `release_task`, `triage_task` �
 `decide_task` and `approval_card`, which `v0.5.0` added. Only `create_task`
 (`AUDIENCE_RUNNER`) declares no set. A token scoped to tool sets reaches only
 tools in one of them, so a tool with no set is reachable by an **unscoped**
-session and by no scoped one — the same rule that makes the concierge reachable
-by a customer and by no staff catalogue.
+session and by no scoped one.
+
+**That rule is also how a customer's token reached this package, and it is now
+shut.** `retail-customer` named no tool sets, which read as a confinement and
+meant the opposite: `list_tasks`, `get_task` and `approval_card` are `VERB_READ`
+at `CLEARANCE_PUBLIC` with **no compartments**, so an unscoped customer
+satisfied every gate on the staff approval queue — and `tasksd`'s row predicate
+sets `NotRequester` to the viewer, which *excludes* their own tasks rather than
+restricting them to it, so what a customer saw was the staff payment approvals.
+The role now names `self-service` (`auth/README.md` says what is in it and
+why), and all three answer garmd's `not_found` to `ada`.
 
 **That is the one behaviour this tree's move to `contracts v0.5.0` changes, and
 it is a fix rather than a widening anyone chose.** Declaring no set was the
@@ -1028,30 +1044,33 @@ was refused the method, which in this tree is every role but the customer's, so
 `task-triage` bought sam and priya a queue they could look at and not decide
 anything on. `sam` and `priya` now reach `decide_task` and `approval_card`;
 `jdoe` and `amir` still get garmd's `not_found` for both, because neither holds
-`triage`; `ada` is unchanged, because an unscoped session was never narrowed by a
-set. Verified against the running plane rather than reasoned about.
+`triage`. Verified against the running plane rather than reasoned about.
 
 Against this plane (`ListTools`, dev IdP personas):
 
 | persona | roles | what it sees of `garm.tasks.v1` |
 | --- | --- | --- |
-| `ada` | `retail-customer` — `INTERNAL`, `READ`, **no `tool_sets`** | `list_tasks`, `get_task`. `approval_card` is reachable too but not listed: garmd keeps card endpoints out of `ListTools`. |
+| `ada` | `retail-customer` — `INTERNAL`, `READ`, `tool_sets: [self-service]` | **nothing**. Nothing in this package is in `self-service` and a scoped caller reaches no tool outside its own sets, so `list_tasks`, `get_task` and `approval_card` all answer garmd's `not_found` — they answered `200`, `404 tool_refused` and `404 tool_refused` while the role named no sets. |
 | `sam`, `priya` | `task-triage` — `PUBLIC`, `READ`+`WRITE`, `tool_sets: [triage]`, beside their own | `list_tasks`, `get_task`, `claim_task`, `release_task`, `triage_task`. `decide_task` and `approval_card` are reachable and not listed: both are `AUDIENCE_PERSON` card-and-decision endpoints garmd keeps out of `ListTools`. |
-| `jdoe`, `amir` | staff roles scoped to `support` / `research` / `compliance`, none with `triage` | **nothing**. Every tool in the package but `create_task` is in `triage`, and `create_task` needs an unscoped token. |
+| `jdoe`, `amir` | staff roles scoped to `support` / `research` / `compliance`, none with `triage` | **nothing**. Every tool in the package but `create_task` is in `triage`, and `create_task` needs an unscoped token — which, now that `retail-customer` names a set, **no role in this policy issues**. `create_task` is `AUDIENCE_RUNNER`: the runner's own STS token is the only thing meant to reach it. |
 
-Verbs do the rest of the narrowing: `ada` holds `READ`, so `claim_task`,
-`release_task`, `triage_task`, `decide_task` and `create_task` answer garmd's
-own `not_found` to her — the daemon does not admit a tool you cannot reach
-exists.
+Verbs do the rest of the narrowing where a set would not have: `ada`'s scope
+already refuses her every method here, and `jdoe` and `amir` hold `READ` or
+`WRITE` without `triage`, so the same `not_found` reaches them — the daemon does
+not admit a tool you cannot reach exists.
 
 **Reachability is proved, and the queue being empty is not the same thing as
-nothing routing.** `POST /garm.tasks.v1.TasksService/ListTasks` as `ada`
-answers `200 {"cursor":""}`, and `GetTask` for an id that does not exist answers
+nothing routing.** `POST /garm.tasks.v1.TasksService/ListTasks` as `sam` answers
+`200 {"cursor":""}`, and `GetTask` for an id that does not exist answers
 `404 tool_refused` — *the tool* found nothing, which is tasksd's own answer
 arriving back over NATS through the daemon. Before adoption both were garmd's
-`not_found`: a declared-nowhere subject. `DecideTask` as `sam` answers `400
-invalid_argument` on an empty request and as `jdoe` answers garmd's `not_found`,
-which is the set doing its work on either side.
+`not_found`: a declared-nowhere subject. The two answers are how you tell a
+*scope* refusal from a *row* refusal, and it is the check that proved the
+customer window was real: `ada`'s `ListTasks` answered `200` and her `GetTask`
+`404 tool_refused` — tasksd answering her — where both are now garmd's
+`not_found`. `DecideTask` as `sam` answers `400 invalid_argument` on an empty
+request and as `jdoe` answers garmd's `not_found`, which is the set doing its
+work on either side.
 
 ## The second platform service adopted: `garm.artefacts.v1`
 
@@ -1093,35 +1112,45 @@ them rather than chosen — so a deployment with no audit sink does not mount th
 catalogue at all.
 
 **No role carries the `artefacts` set, and that is a decision nobody has made.**
-All four tools declare `sets: ["artefacts"]`, every staff role in `auth/` names a
-set, and none of those sets is `artefacts` — so `jdoe`, `amir`, `priya` and `sam`
-see none of the four and only `ada`, whose `retail-customer` role names no set at
-all, lists any. Granting the set is a decision about who may name, describe or
-read a generated document, exactly as granting `triage` was a decision about who
-triages a task, and adopting a contract must not make it for anybody. Nobody
-holds the `generated-artefacts` compartment either, so a `read_url` that reached
-the service would come back as an id with its card withheld.
+All four tools declare `sets: ["artefacts"]`, every role in `auth/` names a set,
+and none of those sets is `artefacts` — so **no persona sees any of the four**.
+Granting the set is a decision about who may name, describe or read a generated
+document, exactly as granting `triage` was a decision about who triages a task,
+and adopting a contract must not make it for anybody. Nobody holds the
+`generated-artefacts` compartment either, so a `read_url` that reached the
+service would come back as an id with its card withheld.
+
+**`ada` used to be the exception, and the reason is the same one that opened the
+queue to her.** While `retail-customer` named no tool sets, her session was
+*unscoped* rather than confined, and `garm.artefacts.v1.describe` is one of the
+things it reached — a contract the bank adopted deciding disclosure for a
+customer, which is precisely what the paragraph above says adoption must never
+do. `self-service` closed it along with the queue.
 
 Against the `garm-ai/stack` plane (`ListTools`, dev IdP personas):
 
 | persona | what it sees of `garm.artefacts.v1` |
 | --- | --- |
-| `ada` | `describe` in the default listing; `describe` and `read_url` when the client asks for the `PERSON` audience. |
-| `jdoe`, `amir`, `priya`, `sam` | **nothing**, at any audience. Every role they hold names a tool set and none is `artefacts`. |
+| `ada`, `jdoe`, `amir`, `priya`, `sam` | **nothing**, at any audience. Every role they hold names a tool set and none is `artefacts`. `ada` listed `describe` until `retail-customer` was given one. |
 | anybody | **never `begin_write` or `commit`.** Both declare `AUDIENCE_RUNNER`, which keeps them out of a person's and a model's listing, and both are `VERB_WRITE`, which no principal reaching the `artefacts` set holds. |
 
-**And the audience is a listing rule, not a gate** — which this plane shows in
-one pair of calls. The `concierge` agent acting for `ada` is not offered
-`read_url` and can still call it; what refuses it is the service's own check on a
-delegated caller, `403 tool_refused`, where the same caller's `describe` gets a
-plain `404`. A tool relying on its audience to keep a caller out has no gate at
-all.
+**The audience is a listing rule and not a gate**, and this tree can no longer
+demonstrate it — which is worth saying plainly rather than leaving a worked
+example that no longer runs. The demonstration used to be a pair of calls as the
+`concierge` acting for `ada`: not offered `read_url`, able to call it, refused by
+*artefactd's* own check on a delegated caller (`403 tool_refused`) where the same
+caller's `describe` got a plain `404`. It worked only because `retail-customer`
+named no tool sets, so that session was unscoped and reached a package no role is
+meant to hold. Scoping it to `self-service` closed both calls at garmd, which is
+the correct answer and costs the illustration. The rule itself is unchanged: a
+tool relying on its audience to keep a caller out has no gate at all.
 
-**Reachability is proved.** `Describe` for a well-formed id that does not exist
-answers `404 tool_refused` — *the tool* found nothing, artefactd's own answer
-arriving back over NATS — where the same call as `sam` is garmd's own `not_found`
-and a method no catalogue declares is `unimplemented`. Three distinguishable
-answers.
+**Reachability is proved — and the proof is now a refusal.** Every persona's
+`Describe` and `ReadUrl` answer garmd's own `not_found`, because no role names
+`artefacts`; a method no catalogue declares answers `unimplemented` instead, and
+a tool that *is* reached answers `404 tool_refused` when the tool itself finds
+nothing (see `garm.tasks.v1` above, as `sam`). Three distinguishable answers, and
+the first of them is what "no role carries this set" looks like from outside.
 
 ## Owners and cards
 

@@ -103,10 +103,20 @@ service Concierge {
   // because the caller is a customer whose token holds READ and nothing
   // else: a door graded WRITE would be one no customer could open. Starting
   // a run changes nothing outside the run store, and every tool inside this
-  // one is a read. No sets, deliberately: a customer's token names none, and
-  // a session scoped to a staff set does not reach a tool that declares
-  // none — so the door is open to the unscoped session a customer holds and
-  // closed to every staff catalogue.
+  // one is a read.
+  //
+  // `self-service`, AND IT USED TO BE NO SETS AT ALL. The old reading was that
+  // a customer's token names no sets, so an unscoped session reaches a set-less
+  // tool while no staff catalogue does — true, and the wrong half of the
+  // problem. UNSCOPED IS THE WIDEST THING A TOKEN CAN BE, not the narrowest:
+  // garmd's `inScope` lets a nil scope through to everything the principal is
+  // otherwise entitled to, so `retail-customer` reached every PUBLIC READ tool
+  // in the whole composed catalogue that asks for no compartment — which is
+  // `garm.tasks.v1`'s staff approval queue, and the queue's own row predicate
+  // excludes the viewer's own tasks rather than restricting them to it. A
+  // customer listing it saw the staff payment approvals. Naming a set here and
+  // in auth/claims.yaml is what shuts that: a SCOPED caller cannot reach a tool
+  // in a set it does not name, and nothing in the queue names this one.
   rpc Invoke(ConciergeRequest) returns (garm.agent.v1.RunRef) {
     option (garm.tool.v1.tool) = {
       name: "concierge"
@@ -118,7 +128,7 @@ service Concierge {
       verb: VERB_READ
       min_clearance: CLEARANCE_INTERNAL
       compartments: ["financial", "pii-contact"]
-      sets: []
+      sets: ["self-service"]
       // Two Invokes are two runs. reversibility and external stay unset for
       // the reason support_assistant.proto gives; nothing this run can call
       // has an external effect anyway.
@@ -145,7 +155,7 @@ service Concierge {
       verb: VERB_READ
       min_clearance: CLEARANCE_INTERNAL
       compartments: ["financial", "pii-contact"]
-      sets: []
+      sets: ["self-service"]
       effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
       guidance: {
         when_to_use: "After Invoke, to collect the answer."

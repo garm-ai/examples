@@ -88,10 +88,18 @@ roles:
     verbs: [READ, WRITE]
     tool_sets: [triage]
 
+  # `self-service`: the concierge door, concierge_run, and the three READ tools
+  # the concierge may call. It names a set now and named none before, and the
+  # omission was a live clearance window rather than a narrowing — a nil scope
+  # is UNSCOPED, so this role reached `garm.tasks.v1`'s staff approval queue.
+  # claims.yaml carries the full reasoning, and this file has to agree with it
+  # or the devkit path and the governed path grant a customer different
+  # authority for the same identity.
   retail-customer:
     clearance: INTERNAL
     compartments: [financial, pii-contact]
     verbs: [READ]
+    tool_sets: [self-service]
 
 users:
   # `subject` is what lands in `sub` and therefore in every ledger row. Real

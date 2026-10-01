@@ -340,16 +340,16 @@ const file_accounts_v1_accounts_proto_rawDesc = "" +
 	"\x06_emailB\b\n" +
 	"\x06_phoneB\x10\n" +
 	"\x0e_date_of_birthB\x0e\n" +
-	"\f_national_id2\xaf\t\n" +
-	"\x0fAccountsService\x12\xc7\x03\n" +
+	"\f_national_id2\xcb\t\n" +
+	"\x0fAccountsService\x12\xd5\x03\n" +
 	"\n" +
-	"GetBalance\x12\x1e.accounts.v1.GetBalanceRequest\x1a\x1f.accounts.v1.GetBalanceResponse\"\xf7\x02\x92\xb5\x18\xf2\x02\n" +
+	"GetBalance\x12\x1e.accounts.v1.GetBalanceRequest\x1a\x1f.accounts.v1.GetBalanceResponse\"\x85\x03\x92\xb5\x18\x80\x03\n" +
 	"\vget_balance\x12\x16Get an account balance\x1a>Current and available balance for one account, in minor units. \x01(\x142\tfinancialB\x04\b\x01\x10\x03R\xe2\x01\n" +
-	"XThe customer asks what they have, or you need to check funds before proposing a payment.\x12\x85\x01Do not use to decide whether a payment will clear. Available balance is a snapshot and does not account for authorisations in flight.b\asupportb\bpayments\x12\xba\x05\n" +
-	"\vGetCustomer\x12\x1f.accounts.v1.GetCustomerRequest\x1a .accounts.v1.GetCustomerResponse\"\xe7\x04\x92\xb5\x18\xe2\x04\n" +
+	"XThe customer asks what they have, or you need to check funds before proposing a payment.\x12\x85\x01Do not use to decide whether a payment will clear. Available balance is a snapshot and does not account for authorisations in flight.b\asupportb\bpaymentsb\fself-service\x12\xc8\x05\n" +
+	"\vGetCustomer\x12\x1f.accounts.v1.GetCustomerRequest\x1a .accounts.v1.GetCustomerResponse\"\xf5\x04\x92\xb5\x18\xf0\x04\n" +
 	"\fget_customer\x12\x14Get customer details\x1a\xa3\x01Identity and contact details for one customer. Fields are returned according to the caller's clearance and compartments; absence of a field is not absence of data. \x01(\x142\vpii-contactB\x04\b\x01\x10\x03R\xe9\x02\n" +
 	"+You need to identify or contact a customer.\x12\xa1\x01Never to verify identity for a security decision. A masked or coarsened field is not evidence, and this tool cannot tell you which fields you were given in full.\"\x95\x01A not-found answer may mean the customer does not exist OR that you are not cleared to see them. Do not report to the customer that no record exists.b\asupportb\n" +
-	"compliance\x1a\x15\xea\xc7\x18\x11\n" +
+	"complianceb\fself-service\x1a\x15\xea\xc7\x18\x11\n" +
 	"\x0fretail-accountsB=Z;github.com/garm-ai/examples/bank/gen/accounts/v1;accountsv1b\x06proto3"
 
 var (

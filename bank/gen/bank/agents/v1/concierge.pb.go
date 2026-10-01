@@ -108,15 +108,15 @@ const file_bank_agents_v1_concierge_proto_rawDesc = "" +
 	"\arequest\x18\x02 \x01(\tB\r\xbaH\n" +
 	"\xc8\x01\x01r\x05\x10\x01\x18\xd0\x0fR\arequest:\n" +
 	"\x9a\xb5\x18\x06\b\n" +
-	"\"\x02\x12\x002\xab\n" +
+	"\"\x02\x12\x002\xc7\n" +
 	"\n" +
-	"\tConcierge\x12\x87\x05\n" +
-	"\x06Invoke\x12 .bank.agents.v1.ConciergeRequest\x1a\x15.garm.agent.v1.RunRef\"\xc3\x04\x92\xb5\x18\xbe\x04\n" +
+	"\tConcierge\x12\x95\x05\n" +
+	"\x06Invoke\x12 .bank.agents.v1.ConciergeRequest\x1a\x15.garm.agent.v1.RunRef\"\xd1\x04\x92\xb5\x18\xcc\x04\n" +
 	"\tconcierge\x12\x11Ask the concierge\x1a\xe5\x01Start a concierge run for yourself. Returns a run reference immediately; the answer is collected with concierge_run. The concierge can read your balance, your contact details and where a payment has reached. It cannot move money. \x01(\x142\tfinancial2\vpii-contactB\x00R\x97\x02\n" +
-	"aA customer has a question about their own balance, their contact details, or a payment they made.\x12_Never to make a payment or change anything. This agent holds no tool that can, and will say so.\"QA refusal here is about YOUR authority to start a run. Do not rephrase and retry.\x12\xf4\x02\n" +
-	"\x06GetRun\x12\x15.garm.agent.v1.RunRef\x1a\x18.garm.agent.v1.RunStatus\"\xb8\x02\x92\xb5\x18\xb3\x02\n" +
+	"aA customer has a question about their own balance, their contact details, or a payment they made.\x12_Never to make a payment or change anything. This agent holds no tool that can, and will say so.\"QA refusal here is about YOUR authority to start a run. Do not rephrase and retry.b\fself-service\x12\x82\x03\n" +
+	"\x06GetRun\x12\x15.garm.agent.v1.RunRef\x1a\x18.garm.agent.v1.RunStatus\"\xc6\x02\x92\xb5\x18\xc1\x02\n" +
 	"\rconcierge_run\x12\x14Read a concierge run\x1ajThe state and, once finished, the result of one run. Answers not-found for a run the caller did not start. \x01(\x142\tfinancial2\vpii-contactB\x04\b\x01\x10\x03R~\n" +
-	"$After Invoke, to collect the answer.\x12VDo not poll faster than once a second. Every poll is a governed call and a ledger row.\x1a\x9c\x02\xaa\xbb\x18\xf2\x01\b\x01\x12\x1a\b\x14\x12\tfinancial\x12\vpii-contact\x1a\x06\n" +
+	"$After Invoke, to collect the answer.\x12VDo not poll faster than once a second. Every poll is a governed call and a ledger row.b\fself-service\x1a\x9c\x02\xaa\xbb\x18\xf2\x01\b\x01\x12\x1a\b\x14\x12\tfinancial\x12\vpii-contact\x1a\x06\n" +
 	"\x04fast\"\r\b\f\x10\xc0\x9a\f\x18\x1e\"\x03\b\xd8\x04*b\n" +
 	"\x06system\x12X\n" +
 	"\x14prompts/concierge.md\x12@dc836b59d79cfd83fc32b05b5b3d99061c7d35a0eec9e922f8f06f4dab94829d2\x1a\n" +

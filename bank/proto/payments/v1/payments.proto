@@ -240,7 +240,15 @@ service PaymentsService {
       verb: VERB_READ
       min_clearance: CLEARANCE_INTERNAL
       compartments: ["financial"]
-      sets: ["support", "payments"]
+      // `self-service` for the reason accounts.proto's get_balance spells out:
+      // the concierge calls this tool, tool sets fold by intersection, so the
+      // customer's own scope is the floor of every run they start. It grants
+      // nothing new — `retail-customer` held `financial` at INTERNAL with READ
+      // and already reached this tool while it was unscoped. initiate_payment
+      // above is untouched and stays out of `self-service`: RESTRICTED,
+      // DESTRUCTIVE and a grant, none of which a customer holds, so three
+      // independent gates refuse it before a set is even consulted.
+      sets: ["support", "payments", "self-service"]
       effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
       guidance: {
         when_to_use: "Before considering any retry, and whenever a customer asks "
