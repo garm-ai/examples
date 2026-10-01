@@ -4,8 +4,8 @@ github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op h1:1BOWQJweNyvZMl
 github.com/antithesishq/antithesis-sdk-go v0.8.0-default-no-op/go.mod h1:FQyySiasQQM8735Ddel3MRojmy4dA1IqCeyJ5jmPMbI=
 github.com/garm-ai/artefactd v0.1.0 h1:Hb5drN6sWdo0XjaXGMXnmbmTJULxfHLWmKzkpqinmZI=
 github.com/garm-ai/artefactd v0.1.0/go.mod h1:ZdrKkVuVEO5kS+B1tZQxv/ryDn57DP0RAUSNakqjGlg=
-github.com/garm-ai/contracts v0.8.0 h1:XGoq057R+QWq4wGadwjs/qMb8AwQaP6h6xlE5z3vYKI=
-github.com/garm-ai/contracts v0.8.0/go.mod h1:93sBd/xmW9OrzHHxRj4H1Lh9ne4PPyDzlk9whdhc8LE=
+github.com/garm-ai/contracts v0.9.0 h1:FYx5NYHgRhi46GrzzLYcMwaM4mwTTxVZCqXi22B+9gw=
+github.com/garm-ai/contracts v0.9.0/go.mod h1:93sBd/xmW9OrzHHxRj4H1Lh9ne4PPyDzlk9whdhc8LE=
 github.com/garm-ai/tool-go v0.6.0 h1:uV250y1HN7XKsb+I7SzDsgmwHEJ6sG9aRWXo0Y3LogY=
 github.com/garm-ai/tool-go v0.6.0/go.mod h1:yGvmAMJxuQMqHSdUlybaJpdhI6dnc0AlzLBADHNQd4g=
 github.com/garm-ai/tools/taxonomy v0.2.0 h1:9TOJbTdE4wWC1/2225gGze5FdVtanqSePy7LfIS9kJg=
