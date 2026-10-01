@@ -23,6 +23,8 @@ package payments.v1;
 
 import "buf/validate/validate.proto";
 import "bank/v1/taxonomy.proto";
+import "garm/card/v1/card.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 
 option go_package = "github.com/garm-ai/examples/bank/gen/payments/v1;paymentsv1";
@@ -72,15 +74,26 @@ message InitiatePaymentRequest {
 
   optional string reference = 5 [(buf.validate.field).string.max_len = 140];
 
-  // The answer to "external and not idempotent": the caller names the attempt,
-  // and a repeat of the same key returns the original payment instead of making
-  // a second one.
+  // The answer to "external and not idempotent": the attempt is named, and a
+  // repeat of the same key returns the original payment instead of making a
+  // second one.
   //
   // It is required rather than optional because an agent that retries is the
   // expected case, not the exceptional one — a timeout it never saw the answer
   // to looks exactly like a call it should make again. Leaving this to the
   // caller's discretion means it is absent precisely when it matters.
-  string idempotency_key = 6 [(buf.validate.field).required = true,
+  //
+  // And it is the RUNNER's, never the model's: `source: SOURCE_RUNNER`. A
+  // model that retries picks a new key and pays twice, or reuses one for two
+  // payments and pays once; the key must come from the thing that knows what
+  // a retry is. agentd fills it with <run_id>-<dispatch seq> and strips it
+  // from the schema the model sees; garmd (from v0.2.2) projects it out of
+  // ListTools for every caller and refuses a request that sets it without a
+  // runner identity. The read and on_deny repeat the message default because
+  // an explicit field policy replaces the default rather than layering on it.
+  string idempotency_key = 6 [(garm.tool.v1.field_policy) = {
+                                read: CLEARANCE_PUBLIC on_deny: { mask: {} } source: SOURCE_RUNNER },
+                              (buf.validate.field).required = true,
                               (buf.validate.field).string.pattern = "^[A-Za-z0-9_-]{16,64}$"];
 
   // The rule no single field can express, and the reason CEL earns its weight.
@@ -136,6 +149,15 @@ message GetPaymentStatusResponse {
 }
 
 service PaymentsService {
+  // Who is answerable for these tools. Every card built from this service
+  // names the team; the contact is where an approver goes when a payment
+  // sits in the queue. Metadata the daemon never reads (garm.meta.v1 is
+  // outside its version check), read by the runner from the catalogue.
+  option (garm.meta.v1.owner) = {
+    team: "payments-platform"
+    contact: "#payments-oncall"
+  };
+
   rpc InitiatePayment(InitiatePaymentRequest) returns (InitiatePaymentResponse) {
     option (garm.tool.v1.tool) = {
       name: "initiate_payment"
@@ -150,7 +172,27 @@ service PaymentsService {
       approval: {
         mode: MODE_GRANT
         approver_min_clearance: CLEARANCE_RESTRICTED
+        // Need-to-know, not seniority, on the approving side too. A
+        // RESTRICTED engineer with no `financial` compartment has no business
+        // approving a payment, and without this line the predicate has one
+        // axis and clearance alone would decide.
+        approver_compartments: ["financial"]
         max_grant_age_seconds: 900
+        // What the human is actually approving.
+        //
+        // Without these the grant binds only (tool, subject, time): a
+        // fifteen-minute approval would authorise any payment in the window —
+        // approve ten pounds, send ten thousand. With them the grant carries a
+        // digest over these three values and garmd refuses a request that does
+        // not match, so the human approved THIS payment rather than a payment.
+        //
+        // Three, and not six. source_account_id and idempotency_key are real
+        // and material to the SYSTEM, but an approver reading a sentence
+        // decides on the amount, the destination and the currency; adding
+        // fields nobody reads makes the digest stricter without making the
+        // approval better informed. `reference` is free text a caller chooses
+        // and would let a tampering caller invalidate its own grant.
+        material_fields: ["amount_minor_units", "beneficiary_iban", "currency_code"]
       }
       audit: {
         level: LEVEL_AUDIT
@@ -165,6 +207,26 @@ service PaymentsService {
                   "report that the payment awaits human approval."
       }
     };
+
+    // What the approver reads. The open approval is rendered from this
+    // template instead of the derived one: a title that says what is being
+    // moved, and the three material fields under the labels a person uses.
+    //
+    // Only material fields, and lint rule C1 refuses any other: the task
+    // stores the material fields and nothing else of the request, so
+    // `reference` — free text the caller chose, deliberately NOT material —
+    // has no value a card could show. The template lists what the grant
+    // digest binds, which is also exactly what the approver is approving.
+    option (garm.card.v1.task_card) = {
+      title: "Payment: {currency_code} {amount_minor_units} (minor units)"
+      body: [
+        { facts: { facts: [
+          { field: "beneficiary_iban"   label: "To" },
+          { field: "amount_minor_units" label: "Amount (minor units)" },
+          { field: "currency_code"      label: "Currency" }
+        ] } }
+      ]
+    };
   }
 
   // The safe half of the same domain, and the reason the blast radius bites:
@@ -178,7 +240,15 @@ service PaymentsService {
       verb: VERB_READ
       min_clearance: CLEARANCE_INTERNAL
       compartments: ["financial"]
-      sets: ["support", "payments"]
+      // `self-service` for the reason accounts.proto's get_balance spells out:
+      // the concierge calls this tool, tool sets fold by intersection, so the
+      // customer's own scope is the floor of every run they start. It grants
+      // nothing new — `retail-customer` held `financial` at INTERNAL with READ
+      // and already reached this tool while it was unscoped. initiate_payment
+      // above is untouched and stays out of `self-service`: RESTRICTED,
+      // DESTRUCTIVE and a grant, none of which a customer holds, so three
+      // independent gates refuse it before a set is even consulted.
+      sets: ["support", "payments", "self-service"]
       effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
       guidance: {
         when_to_use: "Before considering any retry, and whenever a customer asks "

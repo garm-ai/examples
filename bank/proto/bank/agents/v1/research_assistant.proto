@@ -1,0 +1,173 @@
+// The research assistant: a question from a member of staff that needs one
+// public web page to answer.
+//
+// The first agent in this tree that reaches OUTSIDE the tenant, through a
+// tool the bank did not write: `web.v1.fetch_page` from
+// github.com/garm-ai/tools/web, adopted by naming its proto package in
+// catalogue.yaml at the version go.mod pins. What comes back from that tool
+// was written by whoever runs the fetched site, so the page text arrives
+// wrapped as untrusted content and the prompt treats it as data about the
+// page, never as a message to the model.
+//
+// It still imports the adopted taxonomy, and that import is the one reason
+// proto/tools/ is still a copy rather than a catalogue.yaml entry: `sets:
+// ["research"]` below is a word tools/taxonomy declares, and lint rule L20
+// refuses an undeclared tool set as an ERROR in the protoc plugin, which buf
+// runs over one directory and which therefore has to find the declaration
+// inside this tree. See this tree's buf.gen.yaml.
+//
+// Same two annotations as support_assistant.proto, answering the same two
+// questions: (garm.agent.v1.agent) is what this agent RUNS AS, and
+// (garm.tool.v1.tool) on each RPC is what a CALLER needs to see and start it.
+syntax = "proto3";
+
+package bank.agents.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+import "tools/taxonomy/v1/taxonomy.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1";
+
+// What a caller hands the agent: one question, in their own words, naming the
+// page it needs. One field rather than a separate `url`, because the address
+// is part of the question ("fetch X and tell me Y") and the guard that
+// confines the fetch is on the TOOL call, where the URL is an argument the
+// runner can see, not on the request, where it is prose.
+message ResearchRequest {
+  // Requests are never sanitised on the way in — min_clearance on the RPC
+  // governs who may call at all — so PUBLIC here says nothing about who may
+  // start a run. mask rather than omit because omit on a presence-less scalar
+  // makes "redacted" and "empty" the same value (L6).
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  // The question, with the page it needs. Bounded for the reason every
+  // request in this tree is: an unbounded string is a prompt-injection
+  // surface with a token bill attached.
+  string request = 1 [(buf.validate.field).required = true,
+                      (buf.validate.field).string.min_len = 1,
+                      (buf.validate.field).string.max_len = 2000];
+}
+
+service ResearchAssistant {
+  // The team that answers "what does the published page say" questions for
+  // the branches owns the agent that reads pages for them.
+  option (garm.meta.v1.owner) = {
+    team: "knowledge-desk"
+    contact: "#knowledge-desk"
+  };
+
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+
+    // INTERNAL because both tools declare min_clearance INTERNAL and the
+    // page text reads at INTERNAL. `internet` because fetch_page is
+    // compartmented to it — reaching outside the tenant is a need-to-know
+    // question, not a seniority one (tools/taxonomy/v1/taxonomy.proto);
+    // pii-contact because get_customer is. Nothing wider: no financial, so
+    // a run acting for a first-line agent with a balance tool in reach
+    // still cannot call one through this agent.
+    principal: {
+      clearance: CLEARANCE_INTERNAL
+      compartments: ["internet", "pii-contact"]
+    }
+
+    model: { alias: "fast" }
+
+    // Same bounds as the other agents. A page is one fetch and an answer;
+    // the bounds are a ceiling on what a stuck run can cost.
+    bounds: {
+      max_steps: 12
+      max_tokens: 200000
+      max_tool_calls: 30
+      timeout: { seconds: 600 }
+    }
+
+    // Pinned by hash, like every prompt in this tree. `mise run prompt-sha`
+    // rewrites it; lint rule A2 and `mise run prompt-sha-check` fail the
+    // build when it has drifted.
+    prompts: [{
+      key: "system"
+      value: {
+        path: "prompts/research-assistant.md"
+        sha256: "c71afec7a84764eb589e5b4c32a6a98696e99386fc27460d5bfee76059bda219"
+      }
+    }]
+
+    // Two tools. The guard on fetch_page repeats what the tool's own
+    // validation already enforces (`prefix: "https://"`), and that is the
+    // point of putting it here: which hosts a fetch may reach is decided
+    // per deployment by the fetch service's allowlist and per agent by this
+    // guard, and an agent whose guard is visible in its own manifest is one
+    // a reviewer can tighten to a host (`startsWith("https://www.gov.uk/")`)
+    // without touching the service. Narrows, never widens.
+    tools: [
+      { fqn: "accounts.v1.get_customer" },
+      {
+        fqn: "web.v1.fetch_page"
+        guard: "args.url.startsWith(\"https://\")"
+      }
+    ]
+  };
+
+  // The governed door. The labels are the agent's own: a caller who can start
+  // this run holds `internet` themselves, so the fold that confines the run
+  // never removes the one tool the run exists to call. Both sets its tools
+  // live in, so a first-line session that also holds `research` sees it.
+  rpc Invoke(ResearchRequest) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "research_assistant"
+      title: "Ask the research assistant"
+      description: "Start a research-assistant run for one question that needs "
+                   "a public web page. Returns a run reference immediately; the "
+                   "answer is collected with research_assistant_run. The run "
+                   "acts for the caller and reads only the page it was given."
+      verb: VERB_WRITE
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: ["internet", "pii-contact"]
+      sets: ["support", "research"]
+      // Two Invokes are two runs. reversibility and external stay unset for
+      // the reason support_assistant.proto gives: the fetch the run performs
+      // is web.v1.fetch_page's own external effect, declared there.
+      effects: { idempotent: false }
+      guidance: {
+        when_to_use: "A member of staff has a question that a specific public "
+                     "page answers — a published fee schedule, a regulator's "
+                     "page, a bank-holiday list — and wants it read and "
+                     "summarised."
+        when_not_to_use: "Not for anything on the bank's own network, and "
+                         "never to act on what a page says: this agent reads "
+                         "and reports, and holds nothing it could act with."
+        on_error: "A refusal here is about YOUR authority to start a run, not "
+                  "about the page or the question. Do not rephrase and retry."
+      }
+    };
+  }
+
+  // A5: identical min_clearance, compartments and sets to Invoke, so a
+  // caller who can start a run can read its result, and no one else can.
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "research_assistant_run"
+      title: "Read a research-assistant run"
+      description: "The state and, once finished, the result of one run. "
+                   "Answers not-found for a run the caller did not start."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: ["internet", "pii-contact"]
+      sets: ["support", "research"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "After Invoke, to collect the answer."
+        when_not_to_use: "Do not poll faster than once a second. Every poll is "
+                         "a governed call and a ledger row."
+      }
+    };
+  }
+}

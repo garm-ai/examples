@@ -41,11 +41,13 @@ import (
 // nothing else that passes matters.
 //
 // The catalogue is accounts-only, which is not a convenience. payments
-// declares an approval gate and an audit stream, and `garmd serve` has no way
-// to supply either — so the full bank catalogue cannot be served by any garmd
-// that exists today. An accounts-only artifact is what a support cluster would
-// actually run, and building one here is what catalogue slicing would do if it
-// existed.
+// declares an approval gate and an audit stream, and this test starts `garmd
+// serve` with neither a grant verifier nor an audit sink — so the full bank
+// catalogue would refuse to mount here, which is the refusal `mise run
+// check-bank` asserts. An accounts-only artifact is what a support cluster
+// would actually run, and building one here is what catalogue slicing would do
+// if it existed. The full catalogue, both supervisions supplied, is what
+// garm-ai/agentd's compose serves.
 
 const (
 	e2eIssuer   = "https://bank-e2e.invalid/idp"

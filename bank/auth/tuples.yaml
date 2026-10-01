@@ -40,6 +40,51 @@ can_invoke:
     agent: agent:support-assistant
   - principal: employee:jdoe
     agent: agent:support-assistant
+  # One principal per agent below, which is the whole point of three more
+  # agents: each is reached by a different persona and by nobody else. jdoe
+  # freezes cards, the customer asks the concierge about herself, priya
+  # screens. A persona missing here gets a 404 from the start card, and that
+  # is the answer working, not the answer failing.
+  - principal: employee:jdoe
+    agent: agent:card-guardian
+  - principal: customer:cust_ab12cd
+    agent: agent:concierge
+  - principal: employee:priya
+    agent: agent:compliance-screen
+  # jdoe again, for the research assistant: the one agent here that reads
+  # outside the tenant, and it reads for a first-line desk.
+  - principal: employee:jdoe
+    agent: agent:research-assistant
+  # nadia, for the workflow agent. One principal again, and this one is the
+  # only persona holding the union that graph needs — see personas.yaml.
+  - principal: employee:nadia
+    agent: agent:new-beneficiary-payment
+
+# CanRun(runner, agent): may this RUNNER execute this agent?
+#
+# A different question from can_invoke, and asked of a different party.
+# can_invoke asks whether a human may reach an agent; can_run asks whether the
+# process presenting that human's assertion is one this deployment actually
+# deployed to run it. Exchange 2 checks both — a runner holding a perfectly
+# good assertion for an agent it was never meant to execute is refused here
+# and nowhere else.
+#
+# `runner:agentd` is the STS client id the runner authenticates with, prefixed
+# like every other identity in this file. A workload identity replaces this
+# static tuple later; for the MVP the deployment writes it down.
+can_run:
+  - runner: runner:agentd
+    agent: agent:support-assistant
+  - runner: runner:agentd
+    agent: agent:card-guardian
+  - runner: runner:agentd
+    agent: agent:concierge
+  - runner: runner:agentd
+    agent: agent:compliance-screen
+  - runner: runner:agentd
+    agent: agent:research-assistant
+  - runner: runner:agentd
+    agent: agent:new-beneficiary-payment
 
 # HandledBy(employee, customer): is this employee the one assigned to this
 # customer? Asked only when an employee acts on a customer's behalf — the
@@ -61,9 +106,34 @@ in_segment:
     segment: retail
   - principal: employee:jdoe
     segment: support-staff
+  # jdoe is in two segments, and the union of their roles is jdoe's authority.
+  # personas.yaml expresses the same fact by listing three roles; this file and
+  # that one are the same policy written for two different readers, so they
+  # have to agree or the governed door (which goes through the STS and this
+  # file) would resolve less than the direct door (which goes through devkit
+  # and personas.yaml).
+  - principal: employee:jdoe
+    segment: payments-team
   - principal: employee:amir
     segment: fraud-team
   - principal: employee:priya
     segment: compliance-team
   - principal: employee:sam
     segment: payments-team
+  # nadia is in TWO segments, and the union of their roles is what the
+  # new-beneficiary payment needs: payments-team brings payments-ops,
+  # compliance-team brings compliance-officer and compliance-contact.
+  # personas.yaml expresses the same fact by listing three roles. The two files
+  # have to agree or the governed door (the STS and this file) would resolve
+  # less than the direct one (devkit and personas.yaml), and the workflow agent
+  # would complete through one door and stall on the other.
+  - principal: employee:nadia
+    segment: payments-team
+  - principal: employee:nadia
+    segment: compliance-team
+  # And a third, for the one verb no existing role carried: payments-workflow-team
+  # is WRITE in the `payments` set, which is what the agent's VERB_WRITE door
+  # demands of a CALLER. A segment of its own so jdoe and sam, who are in
+  # payments-team, do not acquire it.
+  - principal: employee:nadia
+    segment: payments-workflow-team

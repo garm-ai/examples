@@ -20,8 +20,9 @@ package screeningv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/garm-ai/contracts/garm/meta/v1"
+	_ "github.com/garm-ai/contracts/garm/tool/v1"
 	_ "github.com/garm-ai/examples/bank/gen/bank/v1"
-	_ "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -280,7 +281,7 @@ var File_screening_v1_screening_proto protoreflect.FileDescriptor
 
 const file_screening_v1_screening_proto_rawDesc = "" +
 	"\n" +
-	"\x1cscreening/v1/screening.proto\x12\fscreening.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x17garm/tool/v1/tool.proto\"\xf8\x01\n" +
+	"\x1cscreening/v1/screening.proto\x12\fscreening.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x17garm/meta/v1/meta.proto\x1a\x17garm/tool/v1/tool.proto\"\xf8\x01\n" +
 	"\x12ScreenPartyRequest\x12*\n" +
 	"\tfull_name\x18\x01 \x01(\tB\r\xbaH\n" +
 	"\xc8\x01\x01r\x05\x10\x02\x18\xc8\x01R\bfullName\x129\n" +
@@ -316,12 +317,13 @@ const file_screening_v1_screening_proto_rawDesc = "" +
 	"\x1aMATCH_STRENGTH_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13MATCH_STRENGTH_NONE\x10\x01\x12\x1b\n" +
 	"\x17MATCH_STRENGTH_POSSIBLE\x10\x02\x12\x19\n" +
-	"\x15MATCH_STRENGTH_STRONG\x10\x032\xc0\x06\n" +
+	"\x15MATCH_STRENGTH_STRONG\x10\x032\xec\x06\n" +
 	"\x10ScreeningService\x12\xab\x06\n" +
 	"\vScreenParty\x12 .screening.v1.ScreenPartyRequest\x1a!.screening.v1.ScreenPartyResponse\"\xd6\x05\x92\xb5\x18\xd1\x05\n" +
 	"\fscreen_party\x12&Screen a party against sanctions lists\x1a\xa4\x01Check a name against the sanctions and PEP lists this bank subscribes to. Returns whether review is required and, to callers cleared for it, the matches themselves. \x01(\x1e2\x03kycB\x06\b\x01\x10\x03\x18\x01R\xd4\x03\n" +
 	"IOnboarding a party, or before a payment to a beneficiary not seen before.\x12\x81\x02NEVER relay a match, or the fact that screening was run, to the customer or to anyone outside compliance. Tipping off is a criminal offence in several jurisdictions. If a match requires review, hand off to compliance and say nothing further to the customer.\"\x82\x01An empty match list is not a clearance decision. It means this call found nothing, which is not the same as the party being clear.b\n" +
-	"complianceB?Z=github.com/garm-ai/examples/bank/gen/screening/v1;screeningv1b\x06proto3"
+	"compliance\x1a*\xea\xc7\x18&\n" +
+	"\x0ffinancial-crime\x12\x13#fincrime-screeningB?Z=github.com/garm-ai/examples/bank/gen/screening/v1;screeningv1b\x06proto3"
 
 var (
 	file_screening_v1_screening_proto_rawDescOnce sync.Once

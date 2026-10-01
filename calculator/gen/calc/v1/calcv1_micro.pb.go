@@ -5,8 +5,14 @@ package calcv1
 import (
 	context "context"
 	fmt "fmt"
+	cards "github.com/garm-ai/contracts/cards"
+	v1 "github.com/garm-ai/contracts/garm/card/v1"
 	toolbind "github.com/garm-ai/tool-go/toolbind"
 	proto "google.golang.org/protobuf/proto"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoregistry "google.golang.org/protobuf/reflect/protoregistry"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	sync "sync"
 )
 
 // CalculatorHandler implements every tool Calculator declares, in plain
@@ -20,7 +26,191 @@ type CalculatorHandler interface {
 	Summarize(context.Context, *SummarizeRequest) (*SummarizeResponse, error)
 }
 
-// ServeCalculator registers one micro endpoint per tool Calculator declares.
+// CalculatorCards is the optional interface for overriding a generated card.
+//
+// Implement a method of it on your handler and ServeCalculator registers
+// yours; leave it out and the generated default is registered. It is
+// per method, not all or nothing: overriding the approval card of one
+// tool leaves every other card generated.
+//
+// An override gets the ref, its own data from its own store, and the
+// invocation from ctx. It MUST label what it adds — an unlabelled
+// element takes the endpoint's own policy, and an element labelled
+// BELOW the endpoint fails the whole card rather than being served.
+// cards.Join is how to label something at the endpoint's floor or
+// higher.
+type CalculatorCards interface {
+	AddInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	AddResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+	DivideInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	DivideResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+	SummarizeInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	SummarizeResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+}
+
+// garmCardMethod resolves a method descriptor for a generated card.
+//
+// The descriptors come from this package's own .pb.go, which registered
+// them at init; the lookup is by the full name the contract gives,
+// rather than off the file variable, whose Go name is derived from the
+// proto path and is a spelling this generator would have to reproduce.
+var garmCardMethods sync.Map
+
+func garmCardMethod(service, method string) (protoreflect.MethodDescriptor, error) {
+	key := service + "/" + method
+	if v, ok := garmCardMethods.Load(key); ok {
+		return v.(protoreflect.MethodDescriptor), nil
+	}
+	d, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(service))
+	if err != nil {
+		return nil, fmt.Errorf("garm cards: %s is not in the descriptor registry: %w", service, err)
+	}
+	sd, ok := d.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("garm cards: %s is not a service", service)
+	}
+	md := sd.Methods().ByName(protoreflect.Name(method))
+	if md == nil {
+		return nil, fmt.Errorf("garm cards: %s has no method %s", service, method)
+	}
+	garmCardMethods.Store(key, md)
+	return md, nil
+}
+
+// DefaultCalculatorAddInputCard is the generated form for Add.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultCalculatorAddInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("calc.v1.Calculator", "Add")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultCalculatorAddResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response Add returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override AddResultCard, read your
+// own row, and call CalculatorAddResultCardFrom with it.
+func DefaultCalculatorAddResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// CalculatorAddResultCardFrom builds Add's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func CalculatorAddResultCardFrom(ref *v1.CallRef, resp *AddResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("calc.v1.Calculator", "Add")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// DefaultCalculatorDivideInputCard is the generated form for Divide.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultCalculatorDivideInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("calc.v1.Calculator", "Divide")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultCalculatorDivideResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response Divide returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override DivideResultCard, read your
+// own row, and call CalculatorDivideResultCardFrom with it.
+func DefaultCalculatorDivideResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// CalculatorDivideResultCardFrom builds Divide's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func CalculatorDivideResultCardFrom(ref *v1.CallRef, resp *DivideResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("calc.v1.Calculator", "Divide")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// DefaultCalculatorSummarizeInputCard is the generated form for Summarize.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultCalculatorSummarizeInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("calc.v1.Calculator", "Summarize")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultCalculatorSummarizeResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response Summarize returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override SummarizeResultCard, read your
+// own row, and call CalculatorSummarizeResultCardFrom with it.
+func DefaultCalculatorSummarizeResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// CalculatorSummarizeResultCardFrom builds Summarize's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func CalculatorSummarizeResultCardFrom(ref *v1.CallRef, resp *SummarizeResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("calc.v1.Calculator", "Summarize")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// ServeCalculator registers one micro endpoint per tool Calculator declares,
+// and one per card those tools serve.
+//
+// A card is registered exactly like a tool, because it IS one: the
+// daemon routes to it through the same ten steps, at the parent tool's
+// clearance, into the same ledger. Where h implements a card's own
+// signature that override is registered; otherwise the generated
+// default is. See CalculatorCards.
 func ServeCalculator(r toolbind.Registrar, h CalculatorHandler) error {
 	if err := r.Endpoint(
 		toolbind.ToolRef{
@@ -99,6 +289,156 @@ func ServeCalculator(r toolbind.Registrar, h CalculatorHandler) error {
 				return nil, fmt.Errorf("calc.v1.Calculator.Summarize: handler returned no response and no error")
 			}
 			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "calc.v1.add_input_card",
+			Subject:         "calc.v1.Calculator.AddInputCard",
+			Method:          "AddInputCard",
+			Service:         "calc.v1.Calculator",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("calc.v1.Calculator.AddInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				AddInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.AddInputCard(ctx, in)
+			}
+			return DefaultCalculatorAddInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "calc.v1.add_result_card",
+			Subject:         "calc.v1.Calculator.AddResultCard",
+			Method:          "AddResultCard",
+			Service:         "calc.v1.Calculator",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("calc.v1.Calculator.AddResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				AddResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.AddResultCard(ctx, in)
+			}
+			return DefaultCalculatorAddResultCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "calc.v1.divide_input_card",
+			Subject:         "calc.v1.Calculator.DivideInputCard",
+			Method:          "DivideInputCard",
+			Service:         "calc.v1.Calculator",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("calc.v1.Calculator.DivideInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				DivideInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.DivideInputCard(ctx, in)
+			}
+			return DefaultCalculatorDivideInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "calc.v1.divide_result_card",
+			Subject:         "calc.v1.Calculator.DivideResultCard",
+			Method:          "DivideResultCard",
+			Service:         "calc.v1.Calculator",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("calc.v1.Calculator.DivideResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				DivideResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.DivideResultCard(ctx, in)
+			}
+			return DefaultCalculatorDivideResultCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "calc.v1.summarize_input_card",
+			Subject:         "calc.v1.Calculator.SummarizeInputCard",
+			Method:          "SummarizeInputCard",
+			Service:         "calc.v1.Calculator",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("calc.v1.Calculator.SummarizeInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				SummarizeInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.SummarizeInputCard(ctx, in)
+			}
+			return DefaultCalculatorSummarizeInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "calc.v1.summarize_result_card",
+			Subject:         "calc.v1.Calculator.SummarizeResultCard",
+			Method:          "SummarizeResultCard",
+			Service:         "calc.v1.Calculator",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("calc.v1.Calculator.SummarizeResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				SummarizeResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.SummarizeResultCard(ctx, in)
+			}
+			return DefaultCalculatorSummarizeResultCard(ctx, in)
 		},
 	); err != nil {
 		return err

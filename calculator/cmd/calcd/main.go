@@ -40,6 +40,15 @@ func main() {
 func run() error {
 	url := flag.String("nats", nats.DefaultURL, "NATS server URL")
 	name := flag.String("name", "calculator", "Service name, as it appears in $SRV.INFO")
+	// From the runtime, not a literal. Since tool-go v0.6.0 a handler runs
+	// synchronously and a unit of concurrency is a whole micro service
+	// instance, each answering $SRV.INFO separately into a garmd discovery
+	// round buffered at 64 — so the default is an arithmetic result about the
+	// plane, and copying the number here would be one more place for it to go
+	// stale. A calculator's handlers return immediately and would not benefit
+	// from more; a tool that waits on I/O is the one to raise it for.
+	concurrency := flag.Int("concurrency", garmtool.DefaultConcurrency,
+		"Calls in flight at once, per tool — one micro service instance each")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -63,7 +72,15 @@ func run() error {
 	}
 	defer nc.Close()
 
-	svc := garmtool.New(*name, version())
+	// The logger goes in so the runtime reports the configuration actually in
+	// force — concurrency, name, version, queue groups — as one line on this
+	// process's own log stream at startup. A default is logged exactly like a
+	// passed value, so nobody has to read tool-go to find out which number is
+	// running.
+	svc := garmtool.New(*name, version(),
+		garmtool.WithConcurrency(*concurrency),
+		garmtool.WithLogger(log),
+	)
 	// Generated from the .proto: the routes, the request types, the contract
 	// version and the descriptor hash all come from the contract rather than
 	// from anything written here. A handler missing from Handlers is a

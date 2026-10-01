@@ -4,12 +4,117 @@
 go = "1.26"
 buf = "1"
 
+[tasks."vendor-annotations"]
+description = "Refresh every vendored platform proto from the pinned contract module"
+# NOT `garm init --force`, even though that is the documented way to vendor
+# them and the CLI at v0.19.0 does read the bytes out of
+# github.com/garm-ai/contracts. init writes SIX files, and two of them are
+# buf.yaml and buf.gen.yaml: it would replace the bank's protovalidate
+# dependency, the exclude_paths that keep the adopted web/ and tools/
+# packages out of generation, and both trees' real contract_version, with
+# scaffold defaults. Re-vendoring must move the annotations and nothing else.
+#
+# The module cache is the source of truth because it is the same bytes the Go
+# build links, so a mismatch between the vendored .proto and the linked
+# contracts package is impossible by construction. Cache files are 0444; the
+# chmod is on the copy, never on the cache.
+#
+# Both trees, because the calculator vendors the tool annotations too and a
+# task that refreshed only the bank would leave the other one drifting
+# silently — which is the hole this task exists to cover. Nothing in the
+# platform warns a tree that its vendored annotations are older than the
+# module it compiles against; the version below is the only pin there is, so
+# it moves in the same commit as go.mod's.
+#
+# ANNOTATIONS ONLY, and that is the whole of what vendoring is for now.
+# garm/tool/v1, garm/agent/v1, garm/card/v1 and garm/meta/v1 go to
+# <tree>/third_party/proto/garm/... because this tree's own .proto files have to
+# `import` them by their real path, and no toolchain will resolve an import out
+# of a Go module for you. They declare no tools, so third_party/proto is
+# deliberately NOT an input to `garm catalogue build` — feeding it in would add
+# files to the descriptor set and nothing to the catalogue — and §2's
+# one-version invariant does not reach them. They are the case a manifest cannot
+# replace, so they stay, and `vendor-check` below stays with them.
+#
+# THIS TASK USED TO COPY garm/tasks/v1/tasks.proto INTO bank/proto TOO, and
+# catalogue.yaml is why it no longer does: a proto that DECLARES TOOLS is an
+# input to the builder, the builder now reads an input out of the module cache
+# at the version go.mod pins, and a copy of a published file is a thing that
+# goes stale the moment the publisher moves. The distinction the long comment
+# here used to draw — what the file DECLARES, not which module it came from —
+# still decides which protos this task touches; it just no longer has two
+# destinations to decide between.
+run = """
+set -e
+VERSION=v0.6.0-rc.1
+go mod download github.com/garm-ai/contracts@$VERSION
+SRC="$(go env GOMODCACHE)/github.com/garm-ai/contracts@$VERSION/proto/garm"
+copy() {
+  ROOT="$1"; shift
+  for f in "$@"; do
+    mkdir -p "$ROOT/garm/$(dirname "$f")"
+    cp "$SRC/$f" "$ROOT/garm/$f"
+    chmod u+w "$ROOT/garm/$f"
+  done
+  echo "$ROOT: vendored $* from contracts $VERSION"
+}
+copy bank/third_party/proto tool/v1/tool.proto agent/v1/agent.proto card/v1/card.proto meta/v1/meta.proto
+copy calculator/third_party/proto tool/v1/tool.proto
+"""
+
+[tasks."vendor-check"]
+description = "Fail if a vendored platform proto has drifted from the contract module"
+# The gap this closes is real and garm's KNOWN-GAPS names it: nothing warns a
+# tree that its vendored annotations are older than the contracts it compiles
+# against, and the symptom is a linter that cannot see rules the module has
+# and a catalogue built from a vocabulary nobody is looking at. The bytes are
+# written verbatim, so the check is a byte comparison.
+#
+# bank/proto/garm was in this list until catalogue.yaml replaced the copy of
+# garm/tasks/v1 with a module entry, and the gate went with the copy it was
+# watching: there is nothing left to drift when the builder reads the bytes out
+# of the module cache at the version go.mod resolves. What remains is the two
+# annotation trees, which are copies a manifest cannot replace.
+#
+# proto/tools/taxonomy is a copy this gate does NOT cover and never did, and
+# that is worth knowing rather than inferring: it is the one adopted package
+# still in the tree (bank/buf.gen.yaml says why) and nothing compares it to
+# github.com/garm-ai/tools/taxonomy@v0.2.0. Adding it here would buy a gate that
+# §7 is about to delete along with the copy; the honest note is cheaper.
+run = """
+set -e
+mise run vendor-annotations > /dev/null
+PATHS="bank/third_party calculator/third_party"
+if ! git diff --quiet -- $PATHS; then
+  echo "a vendored platform proto has drifted from the pinned contract module —" >&2
+  echo "run 'mise run vendor-annotations', re-run 'mise run gen', and commit:" >&2
+  git diff --stat -- $PATHS >&2
+  exit 1
+fi
+echo "ok: every vendored platform proto matches the contract module"
+"""
+
 [tasks.plugin]
 description = "Install the tool generator at the pinned version"
 # Pinned, not @latest: the generated binding carries a descriptor hash, and a
 # generator that moved under you changes committed output for no reason
 # anyone asked for.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.11.0"
+#
+# v0.19.0 is the generator after the contracts left this repository, so the
+# Go it emits imports github.com/garm-ai/contracts/... — which is what makes
+# it the version that must be pinned here rather than a version that could
+# be. The generated code and the linked module have to name the same package
+# or the binary links both copies of garm/tool/v1 and panics at init.
+#
+# v0.19.0 rather than v0.18.1 because v0.18.1's card emitter names its
+# helpers after the card's RPC name, which an agent service leaves bare —
+# `InputCard`, not `InvokeInputCard`, since there is nothing on that service
+# to distinguish it from. That is right on the wire, where the service
+# qualifies it, and wrong in Go, where the package does: this tree's five
+# agent services share one Go package and got five `DefaultInputCard`s.
+# v0.19.0 qualifies the Go identifier with the service name always, and
+# leaves the RPC and catalogue names alone.
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.23.0-rc.1"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -30,43 +135,100 @@ run = "buf generate"
 description = "Install the garm CLI at the pinned version"
 # Pinned for the same reason the plugin is: the digest identifies the
 # catalogue, so it must not move because someone upgraded a CLI on a laptop.
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.11.0"
+#
+# v0.14.0 is the first tag carrying `claims check`, the garm.agent.v1
+# annotation, lint A1-A5 and `catalogue publish`, so the separate claims-cli
+# install that existed while those were untagged is gone. v0.15.0 adds the
+# garm.card.v1 and garm.meta.v1 annotations and lint rules C1 and O1, which
+# the bank now relies on (owners on every service, a task_card on the
+# payment tool). v0.16.0 adds FieldPolicy.source and lint L34, which mark
+# initiate_payment's idempotency_key as the runner's. v0.19.0 is the CLI
+# after the split: it reads the annotations it vendors and lints against out
+# of github.com/garm-ai/contracts, so the rules it applies are the ones the
+# pinned contract module actually declares — A9, A10 and C8 among them.
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.23.0-rc.1"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
-run = "go install github.com/garm-ai/garmd/cmd/garmd@v0.1.0"
+# v0.2.0 was the first tag that sends Garm-Invocation on the hop and serves
+# ListTools. v0.3.2 is required, not preferred, and re-vendoring the
+# annotations is what required it: `garm.card.v1.Card` is an OPAQUE LEAF to
+# the field-policy walk — like google.protobuf.Timestamp, the field holding a
+# card carries the policy for the whole value and no scalar inside one is
+# classified separately — and a daemon that does not know that walks into it
+# and refuses every card endpoint with `field "kind" has no policy and no
+# message default`. v0.2.0 does exactly that against this tree's catalogue.
+#
+# The catalogue's own digest did not move across the re-vendoring; what moved
+# is the descriptor set it embeds, which is where the card contract lives.
+run = "go install github.com/garm-ai/garmd/cmd/garmd@v0.3.2"
 
 [tasks."check-bank"]
 description = "Assert the bank catalogue mounts where it should and refuses where it should not"
 dir = "bank"
 depends = ["catalogue-bank", "daemon"]
-# Both directions, and the failing one is the point.
+# Four runs, and the three failing ones are the point.
 #
 # Asserting only that the catalogue mounts somewhere would pass just as well if
-# the refusal had quietly stopped working — and a refusal that stopped working
-# is a payment tool served with no grant and no audit trail, which is the one
-# outcome this whole system exists to prevent. So the bare run must FAIL, and
-# the equipped run must pass.
+# a refusal had quietly stopped working — and a refusal that stopped working is
+# a payment tool served with no grant or no audit trail, which is the one
+# outcome this whole system exists to prevent.
+#
+# initiate_payment declares BOTH MODE_GRANT and audit LEVEL_AUDIT with
+# fail_closed and retain_days 2555, and garm.tasks.v1.decide_task declares the
+# same audit block. Each declaration is independently sufficient to refuse, so
+# each is asserted with the OTHER step supplied, which is what makes the two
+# middle runs say something a bare run does not:
+#
+#   * bare — the smoke test: something must refuse.
+#   * an audit sink and NO grants — isolates the grant leg. This run exists
+#     because adopting garm.tasks.v1 changed what the bare run proves: garmd
+#     names the FIRST tool it refuses over, decide_task now sorts ahead of
+#     initiate_payment, and the bare refusal is therefore about audit even
+#     though the grant verifier is missing too. Without this run a broken
+#     GrantVerifier check would leave all three of the old runs green.
+#   * grants and NO audit sink — isolates the audit leg.
+#
+# Only the last, equipped both ways, may mount.
+#
+# 61320h is 2555 days. A sink keeping less is refused too, which is the check
+# that catches a misconfigured bucket rather than a missing one.
 run = """
 set -e
 if garmd check --catalogue bank.binpb > /dev/null 2>&1; then
   echo "FAIL: the catalogue mounted on a deployment with no grant verifier and" >&2
-  echo "      no audit sink. initiate_payment declares both. The refusal has" >&2
-  echo "      stopped working, which means an irreversible payment would be" >&2
-  echo "      served ungated while its schema says it is supervised." >&2
+  echo "      no audit sink. initiate_payment declares both and decide_task" >&2
+  echo "      declares the audit. The refusal has stopped working, which means" >&2
+  echo "      an irreversible payment would be served ungated while its schema" >&2
+  echo "      says it is supervised." >&2
   exit 1
 fi
 echo "ok: refused on a bare deployment, as it must"
 
-# 2555 days, the retention initiate_payment declares. A sink keeping less is
-# refused too, which is the check that catches a misconfigured bucket rather
-# than a missing one.
+if garmd check --catalogue bank.binpb --audit-retention 61320h > /dev/null 2>&1; then
+  echo "FAIL: the catalogue mounted on a deployment with an audit sink but NO" >&2
+  echo "      grant verifier. initiate_payment declares approval MODE_GRANT:" >&2
+  echo "      the money must not move without a grant a person signed, and a" >&2
+  echo "      durable record of an ungated payment is not a substitute." >&2
+  exit 1
+fi
+echo "ok: refused with an audit sink but no grant verifier, as it must"
+
+if garmd check --catalogue bank.binpb --with-grants > /dev/null 2>&1; then
+  echo "FAIL: the catalogue mounted on a deployment with a grant verifier but" >&2
+  echo "      NO audit sink. initiate_payment and decide_task both declare" >&2
+  echo "      audit.fail_closed with 2555 days of retention: neither the money" >&2
+  echo "      nor the decision that releases it may move unless the record of" >&2
+  echo "      it is already durable. A grant alone does not buy that." >&2
+  exit 1
+fi
+echo "ok: refused with grants but no audit sink, as it must"
+
 garmd check --catalogue bank.binpb --with-grants --audit-retention 61320h
 """
 
 [tasks."diff-bank"]
 description = "Report how this branch moves the bank's policy, against a base ref"
-dir = "bank"
 depends = ["cli"]
 # BASE defaults to main. In CI it is the pull request's base, so the report is
 # "what does merging this change", which is the only framing a reviewer can act
@@ -85,57 +247,143 @@ trap 'rm -rf "$WORK"' EXIT
 # The base catalogue is built from a clean worktree of the base ref rather
 # than from a stash: a stash leaves generated output and build artifacts
 # behind, and the digest would then depend on what happened to be lying around.
+#
+# A worktree is also what makes the base's own manifest usable: the module
+# versions an entry resolves to are that ref's go.mod's, which is the whole
+# point of the invariant and would be lost by building the base ref's protos
+# against this one's requirements. The --proto fallback is for a base ref older
+# than the manifest and is dead code the day main carries one.
 git worktree add --detach --quiet "$WORK/base" "$BASE"
-garm catalogue build --proto "$WORK/base/bank/proto" -o "$WORK/base.binpb"
-git worktree remove --force "$WORK/base"
+if [ -f "$WORK/base/catalogue.yaml" ]; then
+  # The base carries a manifest, so its catalogue MUST build. A failure here is
+  # a real one — either the base is broken or this CLI refuses something it
+  # used to accept — and it is not this task's business to decide which.
+  (cd "$WORK/base" && garm catalogue build -o "$WORK/base.binpb")
+  git worktree remove --force "$WORK/base"
+else
+  # A base ref older than the manifest. Its catalogue is composed the old way,
+  # from one proto directory, and THAT TREE MAY NO LONGER BE LINTABLE: rules
+  # arrive over time and are applied to whatever they are pointed at. The bank
+  # before `garm.tasks.v1` was adopted declares a grant-mode approval with no
+  # task queue in its catalogue, which rule P1 now refuses — correctly, and
+  # about a tree nobody is proposing to ship.
+  #
+  # So a failure on this path is NOT a statement about the branch, and must not
+  # read as one. Blocking here would block the very change that retires the
+  # path: the first branch to add catalogue.yaml can never have a green base.
+  if garm catalogue build --proto "$WORK/base/bank/proto" -o "$WORK/base.binpb" 2>"$WORK/base.err"; then
+    git worktree remove --force "$WORK/base"
+  else
+    git worktree remove --force "$WORK/base"
+    echo "NO POLICY DIFF: the base ref $BASE has no catalogue.yaml, and its proto"
+    echo "tree does not build under this CLI. The reason follows. This says nothing"
+    echo "about the branch under review — review the policy change by hand."
+    echo
+    sed 's/^/  | /' "$WORK/base.err"
+    echo
+    echo "This path retires itself once $BASE carries a manifest."
+    exit 0
+  fi
+fi
 
-garm catalogue build --proto proto -o "$WORK/head.binpb"
+garm catalogue build -o "$WORK/head.binpb"
 garm catalogue diff "$WORK/base.binpb" "$WORK/head.binpb"
 """
 
 [tasks.lint-bank]
-description = "Lint the bank tool declarations"
-dir = "bank"
+description = "Lint the bank tool declarations, over the whole composed catalogue"
 depends = ["cli"]
-run = "garm lint --proto proto"
+# NOT `garm lint --proto proto` any more, and the reason is the migration this
+# repository has just done rather than a preference.
+#
+# `garm lint` at v0.20.0 takes ONE DIRECTORY. The bank's catalogue is composed
+# from three inputs — bank/proto, garm.tasks.v1 out of the contract module and
+# web.v1 out of github.com/garm-ai/tools/web — so there is no single directory
+# that contains it, and linting bank/proto alone does not merely see less: it is
+# WRONG. Rule A3 resolves an agent's allowlist against the catalogue the agent
+# is published in, the research assistant names `web.v1.fetch_page`, and a lint
+# of bank/proto refuses that agent because the tool it names is not in the
+# directory. Proved by running it.
+#
+# `garm catalogue build` lints the assembled set and refuses on any error
+# before it writes anything, so composing IS linting and this task is the lint
+# with the artifact thrown away. The one warning it reports is O1 on
+# web.v1.WebService, which is the adopted package's to fix and not this tree's.
+#
+# A manifest-aware `garm lint` is coming; when it lands this becomes
+# `garm lint` with no flags and the temporary file goes away.
+run = """
+set -e
+OUT=$(mktemp -d)
+trap 'rm -rf "$OUT"' EXIT
+garm catalogue build -o "$OUT/lint.binpb"
+"""
 
 [tasks.catalogue-bank]
 description = "Build the bank catalogue"
-dir = "bank"
 depends = ["cli"]
-run = "garm catalogue build --proto proto -o bank.binpb --source garm-ai/examples/bank"
-
-[tasks."claims-cli"]
-description = "Install the garm CLI version claims-check-bank needs, isolated from the shared cli task"
-# Installed to its own GOBIN (examples/bin/claims-cli, already covered by
-# .gitignore's bin/) rather than the shared cli task's $GOPATH/bin, so it
-# cannot collide with or shadow the v0.11.0 garm that catalogue-bank and
-# every other task here installs and depends on. Those stay on v0.11.0,
-# unaffected — only claims-check-bank calls this binary, and by path, never
-# a bare `garm` that might resolve to either install.
+# No --proto and no --source: catalogue.yaml carries both, and it is at the
+# repository root rather than in bank/ because `garm catalogue build` resolves
+# module versions with `go list -m` run in the manifest's own directory and
+# refuses a directory with no go.mod. One Go module, two examples, so the bank's
+# manifest sits beside the go.mod that pins it. catalogue.yaml says all of this
+# where somebody editing it will read it.
 #
-# v0.12.0, not the latest real tag (v0.11.0): `claims check` landed after
-# v0.11.0 and does not exist in any tagged release yet. Until one is cut,
-# this install step fails loudly, naming the missing version — the honest
-# failure, contained to claims-check-bank, rather than a CLI that silently
-# lacks the subcommand or a repository-wide outage over one gate.
-run = "GOBIN=\"$PWD/bin/claims-cli\" go install github.com/garm-ai/garm/cmd/garm@v0.12.0"
+# The artifact still lands in bank/, because `check-bank` and `garmd` are given
+# it by path and the bank's own directory is where a reader looks for the bank's
+# catalogue.
+run = "garm catalogue build -o bank/bank.binpb"
 
 [tasks."claims-check-bank"]
 description = "Assert the bank claims policies only reference compartments and tool sets the catalogue declares"
 dir = "bank"
-depends = ["catalogue-bank", "claims-cli"]
+depends = ["catalogue-bank", "cli"]
 # catalogue-bank BUILDS bank.binpb every run rather than trusting whatever is
 # on disk — bank.binpb is gitignored and generated, and a stale copy would
-# make this gate authoritative about the wrong vocabulary: passing a policy
-# the real catalogue rejects, or failing one it accepts. It runs on the
-# ordinary v0.11.0 garm, which already builds catalogues fine and needs
-# nothing from claims-cli's install.
+# make this gate authoritative about the wrong vocabulary.
 run = """
 set -e
-GARM_CLAIMS="../bin/claims-cli/garm"
-"$GARM_CLAIMS" claims check auth/claims.yaml --against bank.binpb
-"$GARM_CLAIMS" claims check auth/personas.yaml --against bank.binpb
+garm claims check auth/claims.yaml   --against bank.binpb
+garm claims check auth/personas.yaml --against bank.binpb
+"""
+
+[tasks."prompt-sha"]
+description = "Recompute every agent prompt hash and write it into the annotation"
+dir = "bank"
+# The hash is in the proto because the runner verifies the prompt it fetched
+# against it — so the annotation has to be rewritten whenever the prompt
+# changes, and doing that by hand is how a pin goes stale. sed with -i.bak and
+# -E is the spelling that works on both BSD and GNU sed; the .bak is removed
+# rather than left for .gitignore to catch.
+#
+# One line per agent: the prompt's kebab-case name and the proto's snake_case
+# one are the same word, so the list is the agent names and nothing else.
+run = """
+set -e
+for AGENT in support-assistant card-guardian concierge compliance-screen research-assistant; do
+  SUM=$(shasum -a 256 "prompts/$AGENT.md" | cut -d' ' -f1)
+  F="proto/bank/agents/v1/$(echo "$AGENT" | tr - _).proto"
+  sed -i.bak -E "s/(sha256: \\")[0-9a-f]{64}(\\")/\\1${SUM}\\2/" "$F"
+  rm -f "$F.bak"
+  echo "$AGENT: $SUM"
+done
+"""
+
+[tasks."prompt-sha-check"]
+description = "Fail if a committed prompt hash no longer matches its prompt"
+dir = "bank"
+# Same shape as gen-check, and for the same reason: the thing that can go
+# stale is committed, so something has to notice. Scoped to the agent protos
+# so an unrelated edit in the working tree does not fail it.
+run = """
+set -e
+mise run prompt-sha
+if ! git diff --quiet -- proto/bank/agents/v1/; then
+  echo "a prompt changed and its pinned sha256 did not — run 'mise run prompt-sha' and commit:" >&2
+  git diff -- proto/bank/agents/v1/ >&2
+  exit 1
+fi
+echo "ok: every prompt hash matches its file"
 """
 
 [tasks."gen-check"]
@@ -160,7 +408,10 @@ fi
 description = "Build the calculator catalogue"
 dir = "calculator"
 depends = ["cli"]
-run = "garm catalogue build -o calculator.binpb --source garm-ai/examples/calculator"
+# calculator/catalogue.yaml carries the path entry and the source. Its manifest
+# can live in its own directory, unlike the bank's, because it declares no
+# modules and therefore needs no module graph to resolve them against.
+run = "garm catalogue build -o calculator.binpb"
 
 [tasks.serve]
 description = "Run calcd against a local NATS"
@@ -188,4 +439,4 @@ run = "go vet ./..."
 run = "go fmt ./..."
 
 [tasks.ci]
-depends = ["lint", "lint-bank", "check-bank", "claims-check-bank", "build", "test", "gen-check"]
+depends = ["lint", "lint-bank", "check-bank", "claims-check-bank", "prompt-sha-check", "vendor-check", "build", "test", "gen-check"]

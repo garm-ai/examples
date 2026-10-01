@@ -28,8 +28,10 @@ package paymentsv1
 
 import (
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	_ "github.com/garm-ai/contracts/garm/card/v1"
+	_ "github.com/garm-ai/contracts/garm/meta/v1"
+	_ "github.com/garm-ai/contracts/garm/tool/v1"
 	_ "github.com/garm-ai/examples/bank/gen/bank/v1"
-	_ "github.com/garm-ai/garm/contracts/garm/tool/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -120,14 +122,23 @@ type InitiatePaymentRequest struct {
 	AmountMinorUnits *int64  `protobuf:"varint,3,opt,name=amount_minor_units,json=amountMinorUnits,proto3,oneof" json:"amount_minor_units,omitempty"`
 	CurrencyCode     string  `protobuf:"bytes,4,opt,name=currency_code,json=currencyCode,proto3" json:"currency_code,omitempty"`
 	Reference        *string `protobuf:"bytes,5,opt,name=reference,proto3,oneof" json:"reference,omitempty"`
-	// The answer to "external and not idempotent": the caller names the attempt,
-	// and a repeat of the same key returns the original payment instead of making
-	// a second one.
+	// The answer to "external and not idempotent": the attempt is named, and a
+	// repeat of the same key returns the original payment instead of making a
+	// second one.
 	//
 	// It is required rather than optional because an agent that retries is the
 	// expected case, not the exceptional one — a timeout it never saw the answer
 	// to looks exactly like a call it should make again. Leaving this to the
 	// caller's discretion means it is absent precisely when it matters.
+	//
+	// And it is the RUNNER's, never the model's: `source: SOURCE_RUNNER`. A
+	// model that retries picks a new key and pays twice, or reuses one for two
+	// payments and pays once; the key must come from the thing that knows what
+	// a retry is. agentd fills it with <run_id>-<dispatch seq> and strips it
+	// from the schema the model sees; garmd (from v0.2.2) projects it out of
+	// ListTools for every caller and refuses a request that sets it without a
+	// runner identity. The read and on_deny repeat the message default because
+	// an explicit field policy replaces the default rather than layering on it.
 	IdempotencyKey string `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
@@ -365,7 +376,7 @@ var File_payments_v1_payments_proto protoreflect.FileDescriptor
 
 const file_payments_v1_payments_proto_rawDesc = "" +
 	"\n" +
-	"\x1apayments/v1/payments.proto\x12\vpayments.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x17garm/tool/v1/tool.proto\"\xae\x05\n" +
+	"\x1apayments/v1/payments.proto\x12\vpayments.v1\x1a\x1bbuf/validate/validate.proto\x1a\x16bank/v1/taxonomy.proto\x1a\x17garm/card/v1/card.proto\x1a\x17garm/meta/v1/meta.proto\x1a\x17garm/tool/v1/tool.proto\"\xba\x05\n" +
 	"\x16InitiatePaymentRequest\x12K\n" +
 	"\x11source_account_id\x18\x01 \x01(\tB\x1f\xbaH\x1c\xc8\x01\x01r\x172\x15^acct_[a-z0-9]{6,32}$R\x0fsourceAccountId\x12U\n" +
 	"\x10beneficiary_iban\x18\x02 \x01(\tB*\xbaH'\xc8\x01\x01r\"2 ^[A-Z]{2}[0-9]{2}[A-Z0-9]{1,30}$R\x0fbeneficiaryIban\x12M\n" +
@@ -374,8 +385,9 @@ const file_payments_v1_payments_proto_rawDesc = "" +
 	"\x00H\x00R\x10amountMinorUnits\x88\x01\x01\x129\n" +
 	"\rcurrency_code\x18\x04 \x01(\tB\x14\xbaH\x11\xc8\x01\x01r\f2\n" +
 	"^[A-Z]{3}$R\fcurrencyCode\x12+\n" +
-	"\treference\x18\x05 \x01(\tB\b\xbaH\x05r\x03\x18\x8c\x01H\x01R\treference\x88\x01\x01\x12I\n" +
-	"\x0fidempotency_key\x18\x06 \x01(\tB \xbaH\x1d\xc8\x01\x01r\x182\x16^[A-Za-z0-9_-]{16,64}$R\x0eidempotencyKey:\xc8\x01\xbaH\xba\x01\x1a\xb7\x01\n" +
+	"\treference\x18\x05 \x01(\tB\b\xbaH\x05r\x03\x18\x8c\x01H\x01R\treference\x88\x01\x01\x12U\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tB,\xbaH\x1d\xc8\x01\x01r\x182\x16^[A-Za-z0-9_-]{16,64}$\x8a\xb5\x18\b\b\n" +
+	"\"\x02\x12\x000\x01R\x0eidempotencyKey:\xc8\x01\xbaH\xba\x01\x1a\xb7\x01\n" +
 	"'initiate_payment.jpy_has_no_minor_units\x12IJPY has no minor unit: amount_minor_units must be a whole multiple of 100\x1aAthis.currency_code != 'JPY' || this.amount_minor_units % 100 == 0\x9a\xb5\x18\x06\b\n" +
 	"\"\x02\x12\x00B\x15\n" +
 	"\x13_amount_minor_unitsB\f\n" +
@@ -410,13 +422,21 @@ const file_payments_v1_payments_proto_rawDesc = "" +
 	"\x18PAYMENT_STATUS_SUBMITTED\x10\x01\x12#\n" +
 	"\x1fPAYMENT_STATUS_PENDING_APPROVAL\x10\x02\x12\x1b\n" +
 	"\x17PAYMENT_STATUS_REJECTED\x10\x03\x12\x1a\n" +
-	"\x16PAYMENT_STATUS_SETTLED\x10\x042\x87\a\n" +
-	"\x0fPaymentsService\x12\xae\x04\n" +
-	"\x0fInitiatePayment\x12#.payments.v1.InitiatePaymentRequest\x1a$.payments.v1.InitiatePaymentResponse\"\xcf\x03\x92\xb5\x18\xca\x03\n" +
-	"\x10initiate_payment\x12\x12Initiate a payment\x1aiMove funds from a customer account to an external beneficiary. Irreversible once submitted to the scheme. \x03((2\tfinancialB\x06\b\x01\x10\x01\x18\x01J\a\b\x03\x10( \x84\aR\x83\x02\x12\x96\x01Never to retry a payment whose status is unknown. It is not idempotent, and a duplicate leaves the customer out of pocket. Check payment status first.\"hA grant-required response is not a failure. Do not retry; report that the payment awaits human approval.b\bpaymentsj\a\b\x02 \xfb\x13(\x01\x12\xc2\x02\n" +
-	"\x10GetPaymentStatus\x12$.payments.v1.GetPaymentStatusRequest\x1a%.payments.v1.GetPaymentStatusResponse\"\xe0\x01\x92\xb5\x18\xdb\x01\n" +
+	"\x16PAYMENT_STATUS_SETTLED\x10\x042\xa5\t\n" +
+	"\x0fPaymentsService\x12\x93\x06\n" +
+	"\x0fInitiatePayment\x12#.payments.v1.InitiatePaymentRequest\x1a$.payments.v1.InitiatePaymentResponse\"\xb4\x05\x92\xb5\x18\x8a\x04\n" +
+	"\x10initiate_payment\x12\x12Initiate a payment\x1aiMove funds from a customer account to an external beneficiary. Irreversible once submitted to the scheme. \x03((2\tfinancialB\x06\b\x01\x10\x01\x18\x01JG\b\x03\x10(\x1a\tfinancial \x84\a2\x12amount_minor_units2\x10beneficiary_iban2\rcurrency_codeR\x83\x02\x12\x96\x01Never to retry a payment whose status is unknown. It is not idempotent, and a duplicate leaves the customer out of pocket. Check payment status first.\"hA grant-required response is not a failure. Do not retry; report that the payment awaits human approval.b\bpaymentsj\a\b\x02 \xfb\x13(\x01\xd2\xc1\x18\xa0\x01\n" +
+	";Payment: {currency_code} {amount_minor_units} (minor units)\x12a\x12_\n" +
+	"\x16\n" +
+	"\x10beneficiary_iban\x12\x02To\n" +
+	"*\n" +
+	"\x12amount_minor_units\x12\x14Amount (minor units)\n" +
+	"\x19\n" +
+	"\rcurrency_code\x12\bCurrency\x12\xd0\x02\n" +
+	"\x10GetPaymentStatus\x12$.payments.v1.GetPaymentStatusRequest\x1a%.payments.v1.GetPaymentStatusResponse\"\xee\x01\x92\xb5\x18\xe9\x01\n" +
 	"\x12get_payment_status\x12\x12Get payment status\x1a5Where a payment has reached. Safe to call repeatedly. \x01(\x142\tfinancialB\x04\b\x01\x10\x03RR\n" +
-	"PBefore considering any retry, and whenever a customer asks where their money is.b\asupportb\bpaymentsB=Z;github.com/garm-ai/examples/bank/gen/payments/v1;paymentsv1b\x06proto3"
+	"PBefore considering any retry, and whenever a customer asks where their money is.b\asupportb\bpaymentsb\fself-service\x1a)\xea\xc7\x18%\n" +
+	"\x11payments-platform\x12\x10#payments-oncallB=Z;github.com/garm-ai/examples/bank/gen/payments/v1;paymentsv1b\x06proto3"
 
 var (
 	file_payments_v1_payments_proto_rawDescOnce sync.Once

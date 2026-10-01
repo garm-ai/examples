@@ -1,0 +1,18 @@
+# What composes into the calculator's catalogue: its own protos, and nothing
+# else. The minimal example adopts no tools and operates no platform contract,
+# so this is the one-entry case — and it is here rather than at the repository
+# root, where the bank's is, precisely because it declares no modules and needs
+# no module graph to resolve them against.
+#
+# It replaces `--proto proto`, which is deprecated and had become the last
+# thing in this repository still building a catalogue from a bare directory.
+schema: v1
+name: calculator
+source: garm-ai/examples/calculator
+
+include:
+  - path: proto
+
+# No agents here, so nothing resolves a prompt; declared anyway so the file is
+# a complete example of the format rather than a subset of it.
+prompts: .

@@ -1,0 +1,167 @@
+// The concierge: the one agent in this tree a customer starts for themselves.
+//
+// Every other agent acts for a member of staff. This one acts for the person
+// whose data it reads, which changes two things and nothing else. First, its
+// principal is the retail-customer ceiling — INTERNAL, financial and
+// pii-contact, READ — so the fold against the customer's own token removes
+// nothing and adds nothing. Second, its allowlist holds no tool that changes
+// state, so there is no verb here a customer does not already hold.
+//
+// Same two annotations as support_assistant.proto, answering the same two
+// questions: (garm.agent.v1.agent) is what this agent RUNS AS, and
+// (garm.tool.v1.tool) on each RPC is what a CALLER needs to see and start it.
+syntax = "proto3";
+
+package bank.agents.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1";
+
+// What a caller hands the agent. Same two fields, same constraints, as
+// SupportRequest. Confining a customer to their OWN customer_id is
+// account.can_read in auth/model.fga, a per-record relation this schema
+// cannot express and does not try to.
+message ConciergeRequest {
+  // Requests are never sanitised on the way in — min_clearance on the RPC
+  // governs who may call at all — so PUBLIC here says nothing about who may
+  // start a run. mask rather than omit because omit on a presence-less scalar
+  // makes "redacted" and "empty" the same value (L6).
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  // The customer asking, which is the customer this run is about.
+  string customer_id = 1 [(buf.validate.field).required = true,
+                          (buf.validate.field).string.pattern = "^cust_[a-z0-9]{6,32}$"];
+
+  // What the customer wants to know, in their own words.
+  string request = 2 [(buf.validate.field).required = true,
+                      (buf.validate.field).string.min_len = 1,
+                      (buf.validate.field).string.max_len = 2000];
+}
+
+service Concierge {
+  // The digital channel owns what a customer talks to directly.
+  option (garm.meta.v1.owner) = {
+    team: "retail-digital"
+    contact: "#retail-digital"
+  };
+
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+
+    // Exactly the retail-customer ceiling. INTERNAL is the floor every tool
+    // below declares; financial for get_balance and get_payment_status,
+    // pii-contact for get_customer. No compartment a customer does not hold,
+    // so the fold against their own token is the identity.
+    principal: {
+      clearance: CLEARANCE_INTERNAL
+      compartments: ["financial", "pii-contact"]
+    }
+
+    model: { alias: "fast" }
+
+    // Same bounds as the support assistant: a ceiling on what a stuck run can
+    // cost, not an estimate of a good one.
+    bounds: {
+      max_steps: 12
+      max_tokens: 200000
+      max_tool_calls: 30
+      timeout: { seconds: 600 }
+    }
+
+    // Pinned by hash, like every prompt in this tree. `mise run prompt-sha`
+    // rewrites it; lint rule A2 and `mise run prompt-sha-check` fail the
+    // build when it has drifted.
+    prompts: [{
+      key: "system"
+      value: {
+        path: "prompts/concierge.md"
+        sha256: "dc836b59d79cfd83fc32b05b5b3d99061c7d35a0eec9e922f8f06f4dab94829d"
+      }
+    }]
+
+    // Three READ tools and nothing that moves money. initiate_payment is not
+    // listed, and could not be: it needs RESTRICTED and DESTRUCTIVE, and
+    // lint rule A3 refuses an agent that lists a tool it could never call.
+    // The prompt says "you cannot move money"; the allowlist is why that is
+    // true rather than merely instructed.
+    tools: [
+      { fqn: "accounts.v1.get_customer" },
+      { fqn: "accounts.v1.get_balance" },
+      { fqn: "payments.v1.get_payment_status" }
+    ]
+  };
+
+  // The governed door, at the customer's own ceiling. VERB_READ, not WRITE,
+  // because the caller is a customer whose token holds READ and nothing
+  // else: a door graded WRITE would be one no customer could open. Starting
+  // a run changes nothing outside the run store, and every tool inside this
+  // one is a read.
+  //
+  // `self-service`, AND IT USED TO BE NO SETS AT ALL. The old reading was that
+  // a customer's token names no sets, so an unscoped session reaches a set-less
+  // tool while no staff catalogue does — true, and the wrong half of the
+  // problem. UNSCOPED IS THE WIDEST THING A TOKEN CAN BE, not the narrowest:
+  // garmd's `inScope` lets a nil scope through to everything the principal is
+  // otherwise entitled to, so `retail-customer` reached every PUBLIC READ tool
+  // in the whole composed catalogue that asks for no compartment — which is
+  // `garm.tasks.v1`'s staff approval queue, and the queue's own row predicate
+  // excludes the viewer's own tasks rather than restricting them to it. A
+  // customer listing it saw the staff payment approvals. Naming a set here and
+  // in auth/claims.yaml is what shuts that: a SCOPED caller cannot reach a tool
+  // in a set it does not name, and nothing in the queue names this one.
+  rpc Invoke(ConciergeRequest) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "concierge"
+      title: "Ask the concierge"
+      description: "Start a concierge run for yourself. Returns a run reference "
+                   "immediately; the answer is collected with concierge_run. "
+                   "The concierge can read your balance, your contact details "
+                   "and where a payment has reached. It cannot move money."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: ["financial", "pii-contact"]
+      sets: ["self-service"]
+      // Two Invokes are two runs. reversibility and external stay unset for
+      // the reason support_assistant.proto gives; nothing this run can call
+      // has an external effect anyway.
+      effects: { idempotent: false }
+      guidance: {
+        when_to_use: "A customer has a question about their own balance, "
+                     "their contact details, or a payment they made."
+        when_not_to_use: "Never to make a payment or change anything. This "
+                         "agent holds no tool that can, and will say so."
+        on_error: "A refusal here is about YOUR authority to start a run. Do "
+                  "not rephrase and retry."
+      }
+    };
+  }
+
+  // A5: identical min_clearance, compartments and sets to Invoke, so a
+  // caller who can start a run can read its result, and no one else can.
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "concierge_run"
+      title: "Read a concierge run"
+      description: "The state and, once finished, the result of one run. "
+                   "Answers not-found for a run the caller did not start."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_INTERNAL
+      compartments: ["financial", "pii-contact"]
+      sets: ["self-service"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "After Invoke, to collect the answer."
+        when_not_to_use: "Do not poll faster than once a second. Every poll is "
+                         "a governed call and a ledger row."
+      }
+    };
+  }
+}

@@ -5,8 +5,14 @@ package paymentsv1
 import (
 	context "context"
 	fmt "fmt"
+	cards "github.com/garm-ai/contracts/cards"
+	v1 "github.com/garm-ai/contracts/garm/card/v1"
 	toolbind "github.com/garm-ai/tool-go/toolbind"
 	proto "google.golang.org/protobuf/proto"
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoregistry "google.golang.org/protobuf/reflect/protoregistry"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	sync "sync"
 )
 
 // PaymentsServiceHandler implements every tool PaymentsService declares, in plain
@@ -19,7 +25,164 @@ type PaymentsServiceHandler interface {
 	GetPaymentStatus(context.Context, *GetPaymentStatusRequest) (*GetPaymentStatusResponse, error)
 }
 
-// ServePaymentsService registers one micro endpoint per tool PaymentsService declares.
+// PaymentsServiceCards is the optional interface for overriding a generated card.
+//
+// Implement a method of it on your handler and ServePaymentsService registers
+// yours; leave it out and the generated default is registered. It is
+// per method, not all or nothing: overriding the approval card of one
+// tool leaves every other card generated.
+//
+// An override gets the ref, its own data from its own store, and the
+// invocation from ctx. It MUST label what it adds — an unlabelled
+// element takes the endpoint's own policy, and an element labelled
+// BELOW the endpoint fails the whole card rather than being served.
+// cards.Join is how to label something at the endpoint's floor or
+// higher.
+type PaymentsServiceCards interface {
+	InitiatePaymentInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	InitiatePaymentResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+	InitiatePaymentApprovalCard(context.Context, *v1.TaskRef) (*v1.Card, error)
+	GetPaymentStatusInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+	GetPaymentStatusResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+}
+
+// garmCardMethod resolves a method descriptor for a generated card.
+//
+// The descriptors come from this package's own .pb.go, which registered
+// them at init; the lookup is by the full name the contract gives,
+// rather than off the file variable, whose Go name is derived from the
+// proto path and is a spelling this generator would have to reproduce.
+var garmCardMethods sync.Map
+
+func garmCardMethod(service, method string) (protoreflect.MethodDescriptor, error) {
+	key := service + "/" + method
+	if v, ok := garmCardMethods.Load(key); ok {
+		return v.(protoreflect.MethodDescriptor), nil
+	}
+	d, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(service))
+	if err != nil {
+		return nil, fmt.Errorf("garm cards: %s is not in the descriptor registry: %w", service, err)
+	}
+	sd, ok := d.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return nil, fmt.Errorf("garm cards: %s is not a service", service)
+	}
+	md := sd.Methods().ByName(protoreflect.Name(method))
+	if md == nil {
+		return nil, fmt.Errorf("garm cards: %s has no method %s", service, method)
+	}
+	garmCardMethods.Store(key, md)
+	return md, nil
+}
+
+// DefaultPaymentsServiceInitiatePaymentInputCard is the generated form for InitiatePayment.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultPaymentsServiceInitiatePaymentInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("payments.v1.PaymentsService", "InitiatePayment")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultPaymentsServiceInitiatePaymentResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response InitiatePayment returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override InitiatePaymentResultCard, read your
+// own row, and call PaymentsServiceInitiatePaymentResultCardFrom with it.
+func DefaultPaymentsServiceInitiatePaymentResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// PaymentsServiceInitiatePaymentResultCardFrom builds InitiatePayment's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func PaymentsServiceInitiatePaymentResultCardFrom(ref *v1.CallRef, resp *InitiatePaymentResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("payments.v1.PaymentsService", "InitiatePayment")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// DefaultPaymentsServiceInitiatePaymentApprovalCard is the generated approval card for InitiatePayment.
+//
+// The values come from the ref, because the daemon refuses a
+// grant-mode call before it resolves the tool: this service never saw
+// the request that was parked. Every material fact carries the dotted
+// path it came from and is labelled at its own read policy joined with
+// this tool's approver predicate — who may approve is a stricter
+// question than who may read.
+func DefaultPaymentsServiceInitiatePaymentApprovalCard(_ context.Context, ref *v1.TaskRef) (*v1.Card, error) {
+	md, err := garmCardMethod("payments.v1.PaymentsService", "InitiatePayment")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildApprovalCard(md, ref)
+}
+
+// DefaultPaymentsServiceGetPaymentStatusInputCard is the generated form for GetPaymentStatus.
+//
+// One input per field the caller may set, in declaration order, with
+// the control chosen by type and the constraints read from
+// protovalidate. Each input is labelled at its field's WRITE policy,
+// so an input the viewer may not fill is dropped rather than shown
+// disabled — a box a person cannot use is a box they will try to use.
+// Fields the runner supplies are absent.
+func DefaultPaymentsServiceGetPaymentStatusInputCard(_ context.Context, _ *emptypb.Empty) (*v1.Card, error) {
+	md, err := garmCardMethod("payments.v1.PaymentsService", "GetPaymentStatus")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildInputCard(md)
+}
+
+// DefaultPaymentsServiceGetPaymentStatusResultCard answers result_unavailable.
+//
+// A card about an answer needs the answer, and this wrapper has no way
+// to reach a response GetPaymentStatus returned to somebody else. The
+// runtime is meant to seal each call's response under its call id and
+// hand it back here; until that store exists, only a tool that keeps
+// its OWN record has a result card — override GetPaymentStatusResultCard, read your
+// own row, and call PaymentsServiceGetPaymentStatusResultCardFrom with it.
+func DefaultPaymentsServiceGetPaymentStatusResultCard(_ context.Context, _ *v1.CallRef) (*v1.Card, error) {
+	return nil, cards.ErrResultUnavailable
+}
+
+// PaymentsServiceGetPaymentStatusResultCardFrom builds GetPaymentStatus's result card from a response
+// you already hold.
+//
+// One fact per scalar of the response, in declaration order, each
+// labelled at its own field's READ policy and carrying its dotted path.
+// This is what an override calls after reading its own store.
+func PaymentsServiceGetPaymentStatusResultCardFrom(ref *v1.CallRef, resp *GetPaymentStatusResponse) (*v1.Card, error) {
+	md, err := garmCardMethod("payments.v1.PaymentsService", "GetPaymentStatus")
+	if err != nil {
+		return nil, err
+	}
+	return cards.BuildResultCard(md, ref, resp)
+}
+
+// ServePaymentsService registers one micro endpoint per tool PaymentsService declares,
+// and one per card those tools serve.
+//
+// A card is registered exactly like a tool, because it IS one: the
+// daemon routes to it through the same ten steps, at the parent tool's
+// clearance, into the same ledger. Where h implements a card's own
+// signature that override is registered; otherwise the generated
+// default is. See PaymentsServiceCards.
 func ServePaymentsService(r toolbind.Registrar, h PaymentsServiceHandler) error {
 	if err := r.Endpoint(
 		toolbind.ToolRef{
@@ -71,6 +234,131 @@ func ServePaymentsService(r toolbind.Registrar, h PaymentsServiceHandler) error 
 				return nil, fmt.Errorf("payments.v1.PaymentsService.GetPaymentStatus: handler returned no response and no error")
 			}
 			return res, nil
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "payments.v1.initiate_payment_input_card",
+			Subject:         "payments.v1.PaymentsService.InitiatePaymentInputCard",
+			Method:          "InitiatePaymentInputCard",
+			Service:         "payments.v1.PaymentsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("payments.v1.PaymentsService.InitiatePaymentInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				InitiatePaymentInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.InitiatePaymentInputCard(ctx, in)
+			}
+			return DefaultPaymentsServiceInitiatePaymentInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "payments.v1.initiate_payment_result_card",
+			Subject:         "payments.v1.PaymentsService.InitiatePaymentResultCard",
+			Method:          "InitiatePaymentResultCard",
+			Service:         "payments.v1.PaymentsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("payments.v1.PaymentsService.InitiatePaymentResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				InitiatePaymentResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.InitiatePaymentResultCard(ctx, in)
+			}
+			return DefaultPaymentsServiceInitiatePaymentResultCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "payments.v1.initiate_payment_approval_card",
+			Subject:         "payments.v1.PaymentsService.InitiatePaymentApprovalCard",
+			Method:          "InitiatePaymentApprovalCard",
+			Service:         "payments.v1.PaymentsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.TaskRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.TaskRef)
+			if !ok {
+				return nil, fmt.Errorf("payments.v1.PaymentsService.InitiatePaymentApprovalCard: request is %T, want %T", req, (*v1.TaskRef)(nil))
+			}
+			if o, ok := h.(interface {
+				InitiatePaymentApprovalCard(context.Context, *v1.TaskRef) (*v1.Card, error)
+			}); ok {
+				return o.InitiatePaymentApprovalCard(ctx, in)
+			}
+			return DefaultPaymentsServiceInitiatePaymentApprovalCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "payments.v1.get_payment_status_input_card",
+			Subject:         "payments.v1.PaymentsService.GetPaymentStatusInputCard",
+			Method:          "GetPaymentStatusInputCard",
+			Service:         "payments.v1.PaymentsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(emptypb.Empty) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*emptypb.Empty)
+			if !ok {
+				return nil, fmt.Errorf("payments.v1.PaymentsService.GetPaymentStatusInputCard: request is %T, want %T", req, (*emptypb.Empty)(nil))
+			}
+			if o, ok := h.(interface {
+				GetPaymentStatusInputCard(context.Context, *emptypb.Empty) (*v1.Card, error)
+			}); ok {
+				return o.GetPaymentStatusInputCard(ctx, in)
+			}
+			return DefaultPaymentsServiceGetPaymentStatusInputCard(ctx, in)
+		},
+	); err != nil {
+		return err
+	}
+	if err := r.Endpoint(
+		toolbind.ToolRef{
+			FQN:             "payments.v1.get_payment_status_result_card",
+			Subject:         "payments.v1.PaymentsService.GetPaymentStatusResultCard",
+			Method:          "GetPaymentStatusResultCard",
+			Service:         "payments.v1.PaymentsService",
+			ContractVersion: ContractVersion,
+			DescriptorHash:  DescriptorHash,
+		},
+		func() proto.Message { return new(v1.CallRef) },
+		func(ctx context.Context, req proto.Message) (proto.Message, error) {
+			in, ok := req.(*v1.CallRef)
+			if !ok {
+				return nil, fmt.Errorf("payments.v1.PaymentsService.GetPaymentStatusResultCard: request is %T, want %T", req, (*v1.CallRef)(nil))
+			}
+			if o, ok := h.(interface {
+				GetPaymentStatusResultCard(context.Context, *v1.CallRef) (*v1.Card, error)
+			}); ok {
+				return o.GetPaymentStatusResultCard(ctx, in)
+			}
+			return DefaultPaymentsServiceGetPaymentStatusResultCard(ctx, in)
 		},
 	); err != nil {
 		return err

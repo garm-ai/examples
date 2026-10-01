@@ -20,10 +20,21 @@ roles:
     # the `support` set too, but it is compartmented `card-data` and this role
     # does not hold it. A set narrows; it never grants. card-support below is
     # the role that holds card-data.
+    #
+    # `internet` and `research` are the adopted web.v1.fetch_page tool, from
+    # github.com/garm-ai/tools (proto/web, proto/tools). A first-line desk
+    # may read a public page — the published fee schedule, a regulator's
+    # page — and this is the role the research-assistant agent folds
+    # against. Every other agent holding this role (the assistant, the
+    # guardian) gains the same names in its ceiling and reaches nothing new:
+    # neither lists fetch_page, and the runner shows a model the allowlist,
+    # not the claim. Which hosts a fetch may reach is not here at all — the
+    # fetch service's allowlist decides per deployment and the agent's guard
+    # per manifest.
     clearance: INTERNAL
-    compartments: [pii-contact, financial]
+    compartments: [pii-contact, financial, internet]
     verbs: [READ]
-    tool_sets: [support]
+    tool_sets: [support, research]
 
   card-support:
     # freeze_card / unfreeze_card. WRITE, not DESTRUCTIVE — cards.proto's
@@ -71,6 +82,22 @@ roles:
     verbs: [READ]
     tool_sets: [compliance]
 
+  compliance-contact:
+    # get_customer's masked shape, reached from the compliance catalogue.
+    # get_customer is compartmented pii-contact and annotated into both the
+    # support and compliance sets; compliance-officer holds neither the
+    # compartment nor, deliberately, anything outside kyc. This is the
+    # smallest bundle that lets a compliance session confirm WHICH customer a
+    # screening is about — INTERNAL, one compartment, READ, and only the set
+    # it already works in. It exists for the compliance-screen agent, and
+    # priya holds it too, because the fold intersects: an agent that could
+    # identify a customer for an officer who could not would reach further
+    # than the human it acts for.
+    clearance: INTERNAL
+    compartments: [pii-contact]
+    verbs: [READ]
+    tool_sets: [compliance]
+
   payments-ops:
     # initiate_payment (DESTRUCTIVE, RESTRICTED, gated on a human grant
     # upstream of this policy) and get_payment_status (READ).
@@ -90,17 +117,111 @@ roles:
     verbs: [READ, DESTRUCTIVE]
     tool_sets: [payments]
 
+  payments-initiator:
+    # WRITE in the `payments` set, and nothing else. The one thing needed to
+    # START the new-beneficiary-payment agent, which no other role here could
+    # supply.
+    #
+    # WHY IT IS NOT A LINE IN payments-ops. Verbs are a SET and not a lattice:
+    # DESTRUCTIVE does not imply WRITE anywhere in this system. An agent's door
+    # grades what IT does — it creates a run — so it is VERB_WRITE, while the
+    # payment inside the run is VERB_DESTRUCTIVE and carries the grant and the
+    # audit. A caller therefore needs both verbs, and payments-ops deliberately
+    # holds only READ and DESTRUCTIVE: the two payments tools' own verbs, kept
+    # that way by the same ruling that gave task-triage a role of its own rather
+    # than adding WRITE here, because payments-ops is also two agents' ceiling.
+    # Adding WRITE to it would widen the support assistant and this agent as a
+    # side effect of letting one clerk start a run.
+    #
+    # NOT HELD BY THE AGENT, and that asymmetry is the point rather than an
+    # omission: `verb` on Invoke is checked against the CALLER at the door. The
+    # agent's own ceiling is what its four steps need, and none of them is a
+    # WRITE. A role in `agents:` that bought nothing would be authority nobody
+    # could name a use for, which is how a ceiling stops meaning anything.
+    clearance: RESTRICTED
+    compartments: [financial]
+    verbs: [WRITE]
+    tool_sets: [payments]
+
+  task-triage:
+    # The seven tools of `garm.tasks.v1` that carry `sets: ["triage"]`:
+    # list_tasks, get_task, claim_task, release_task, triage_task, and — since
+    # contracts v0.5.0 — decide_task and approval_card. Held by sam and priya,
+    # and by no agent.
+    #
+    # A ROLE OF ITS OWN rather than `triage` added to payments-ops and
+    # compliance-officer, and the reason is the fold. Those two roles are also
+    # the ceilings of the support-assistant and compliance-screen agents
+    # (`agents:` below), so widening them would widen what those agents may
+    # reach — a change to two agents' authority made as a side effect of giving
+    # two people a queue. This grants exactly the queue, to exactly the two.
+    #
+    # PUBLIC because every method of that contract is CLEARANCE_PUBLIC; the
+    # queue's own predicate, not this clearance, is what decides which rows a
+    # viewer sees. WRITE because claiming, releasing and triaging are writes,
+    # and holding it here rather than in payments-ops keeps sam's payments
+    # session at READ and DESTRUCTIVE, which is what it was.
+    #
+    # IT IS NOW SUFFICIENT FOR decide_task, AND IT WAS NOT WHEN IT WAS WRITTEN.
+    # decide_task and approval_card declared no `sets` at contracts v0.3.0, and
+    # garmd's `inScope` refuses a scoped caller a tool in no set — a role naming
+    # any set reaches only tools sharing one — so this role bought sam and priya
+    # a queue they could look at and decide nothing on, and the only role here
+    # that reached the decision was retail-customer, which names no sets at all.
+    # contracts v0.5.0 put both methods in `triage`, this tree requires v0.5.0,
+    # and sam and priya reach both. Verified on the plane: DecideTask as sam gets
+    # as far as request validation, and as jdoe it is still garmd's not_found.
+    #
+    # create_task remains set-less and therefore unscoped-only, which is right:
+    # it is AUDIENCE_RUNNER, a tool the runner calls and a person does not.
+    clearance: PUBLIC
+    compartments: []
+    verbs: [READ, WRITE]
+    tool_sets: [triage]
+
   retail-customer:
-    # Deliberately no tool_sets: this catalogue declares no self-service set
-    # yet, so a customer's own token reaches whatever it exposes at this
-    # ceiling rather than a narrower slice. Confining a customer to their OWN
-    # accounts (never another customer's) is `account.can_read` in model.fga
-    # — a per-record relation this policy cannot express and does not try to.
-    # Minting this role for `kind: customer` before that relation is enforced
-    # is a real clearance window, not a hypothetical one: see auth/README.md.
+    # SCOPED, AND IT USED TO NAME NO SETS AT ALL. That omission read as "a
+    # customer is confined to whatever this ceiling exposes" and meant the
+    # opposite: garmd's `inScope` treats a nil scope as UNSCOPED — the full
+    # catalogue the principal is otherwise entitled to — because a token that
+    # says nothing about scope has not scoped itself to nothing. So this role
+    # reached every tool in the whole composed catalogue that a customer's
+    # arithmetic satisfies, and the composed catalogue is larger than bank/
+    # proto: `garm.tasks.v1.list_tasks`, `get_task` and `approval_card` are
+    # VERB_READ at CLEARANCE_PUBLIC with NO compartments, so INTERNAL ≥ PUBLIC,
+    # READ matches, nothing is needed, and an unscoped session reached a
+    # `triage` tool. That is the STAFF APPROVAL QUEUE. Worse, the queue's row
+    # predicate did not save it: tasksd sets NotRequester to the viewer's
+    # subject for list_tasks — the four-eyes filter EXCLUDES your own tasks
+    # rather than restricting you to them — so a customer saw precisely the
+    # tasks they had not raised, which are the staff payment approvals.
+    # Verified on the plane: ada's list_tasks answered HTTP 200 before this
+    # change and garmd's not_found after it.
+    #
+    # `self-service` is the five tools a customer legitimately needs and no
+    # others: the concierge door and `concierge_run`, plus the three READ tools
+    # the concierge may call — get_customer, get_balance, get_payment_status.
+    # Those three are in the set because tool sets FOLD BY INTERSECTION, so a
+    # run acting for a customer can never be scoped wider than the customer's
+    # own token: this role's scope is the floor of every concierge run, and a
+    # set that left them out would empty the agent's allowlist. They cost
+    # nothing — this role already held `financial` and `pii-contact` at
+    # INTERNAL with READ and already reached all three, unscoped.
+    #
+    # EVERY NAME IN THIS SET IS GRANTED TO THE WHOLE CUSTOMER POPULATION, which
+    # is why `artefacts` is not here (adopting garm.artefacts.v1 must not make a
+    # disclosure decision for anybody — see catalogue.yaml), why no staff
+    # agent's GetRun is, and why nothing in `triage` is.
+    #
+    # THIS CLOSES THE TOOL-SET HALF AND NOT THE PER-RECORD HALF. Confining a
+    # customer to their OWN accounts, never another customer's, is
+    # `account.can_read` in model.fga — a per-record relation this policy cannot
+    # express, which nothing in this example evaluates, and which the five tools
+    # above still need. See auth/README.md.
     clearance: INTERNAL
     compartments: [financial, pii-contact]
     verbs: [READ]
+    tool_sets: [self-service]
 
 # Which segment grants which roles. Membership itself comes from OpenFGA.
 # A principal holding roles from more than one segment gets the UNION: the
@@ -108,12 +229,92 @@ roles:
 segments:
   support-staff:   { kind: employee, roles: [support-desk, card-support] }
   fraud-team:      { kind: employee, roles: [fraud-analyst] }
-  compliance-team: { kind: employee, roles: [compliance-officer] }
+  compliance-team: { kind: employee, roles: [compliance-officer, compliance-contact] }
   payments-team:   { kind: employee, roles: [payments-ops] }
+  # A SEGMENT OF ITS OWN, for the reason payments-initiator is a role of its
+  # own: adding it to payments-team would hand WRITE in the payments set to
+  # jdoe and sam, who are in that segment and have no use for it. One segment,
+  # one member, and the narrowest thing that works.
+  payments-workflow-team: { kind: employee, roles: [payments-initiator] }
   retail:          { kind: customer, roles: [retail-customer] }
 
 # An agent's own authority. The fold turns it into a ceiling automatically —
 # delegation intersects, but that narrowing happens in the verifying daemon,
 # never here.
 agents:
-  support-assistant: { roles: [support-desk] }
+  # Two roles, because the assistant reaches two catalogues. support-desk is
+  # the first-line shape it uses for get_customer; payments-ops is what makes
+  # initiate_payment visible at all — RESTRICTED, `financial`, DESTRUCTIVE and
+  # the `payments` set, every one of which the tool requires.
+  #
+  # This is the ceiling and not a grant. The fold takes the minimum of this and
+  # whoever the run acts for, so an assistant acting for a first-line agent who
+  # holds none of it reaches none of it; what this block decides is only that
+  # the AGENT is not the reason the payment is unreachable. Removing
+  # payments-ops here makes the payment invisible to every run, whoever asked.
+  #
+  # It must stay at least as wide as support_assistant.proto's `principal`
+  # block, or lint rule A3 and this file disagree about what the agent is.
+  support-assistant: { roles: [support-desk, payments-ops] }
+
+  # The card guardian: get_customer, list_cards and freeze_card. card-support
+  # is what makes the card tools visible — CONFIDENTIAL, card-data, WRITE —
+  # and support-desk is the first-line shape for get_customer. The union
+  # carries `financial` too, which card_guardian.proto's principal does not
+  # request: it changes nothing reachable, because the allowlist names no
+  # financial tool and the runner shows the model the allowlist, not the
+  # claim. NOT unfreeze_card, and not because of this block — the agent's
+  # proto does not list it, and an allowlist is a wall where a prompt is
+  # advice.
+  card-guardian: { roles: [support-desk, card-support] }
+
+  # The concierge: the customer's own ceiling and nothing above it. One role,
+  # the one the customer holds, so the fold against a customer's token is
+  # the identity — the agent brings nothing to the delegation the customer
+  # did not already have. That now includes the SCOPE: retail-customer names
+  # `self-service`, so this agent's own session is scoped to it too, and the
+  # intersection of the two is `self-service`. It has to be: a scope the agent
+  # did not hold would be dropped by the fold anyway, and the set deliberately
+  # contains the three tools concierge.proto's allowlist names so that the run
+  # can still make them.
+  concierge: { roles: [retail-customer] }
+
+  # The compliance screen: screen_party and get_customer. compliance-officer
+  # is kyc at CONFIDENTIAL in the compliance set; compliance-contact adds
+  # the pii-contact get_customer needs, and nothing else. Exactly
+  # compliance_screen.proto's principal.
+  compliance-screen: { roles: [compliance-officer, compliance-contact] }
+
+  # The research assistant: fetch_page and get_customer. One role, the
+  # first-line one, now that it carries `internet` and `research`. The union
+  # carries `financial` too, which research_assistant.proto's principal does
+  # not request: nothing reachable changes, because the allowlist names no
+  # financial tool. What the agent may READ from the web is decided by the
+  # fetch service's allowlist and the manifest's guard, never by this file.
+  research-assistant: { roles: [support-desk] }
+
+  # The new-beneficiary payment: the bank's one WORKFLOW agent, and the only
+  # entry here that needs THREE roles. It is the union of what its four steps
+  # require and NO NEW ROLE WAS ADDED FOR IT, which is worth saying plainly
+  # because adding one was the obvious move: payments-ops is RESTRICTED,
+  # `financial`, DESTRUCTIVE and the `payments` set, which initiate_payment
+  # needs; compliance-officer is `kyc` in the `compliance` set, which
+  # screen_party needs; compliance-contact is the `pii-contact` get_customer
+  # needs. The union is exactly new_beneficiary_payment.proto's `principal`
+  # block, and it has to stay that way or lint rule A3 and this file disagree
+  # about what the agent is.
+  #
+  # IT IS THE SAME THREE ROLES AS compliance-screen PLUS payments-ops, which is
+  # the structure of the graph showing through the policy: this agent invokes
+  # that one as a step, so it must be able to reach everything that agent
+  # reaches, and then pay.
+  #
+  # AND THE FOLD IS WHY NO EXISTING PERSON COULD RUN IT. Delegation intersects,
+  # so a run reaches the minimum of this block and whoever it acts for — and
+  # before this change nobody held both halves: jdoe and sam hold payments-ops
+  # and no `kyc`, priya holds `kyc` and nothing financial. That separation was
+  # deliberate (screening.proto: seniority is not need-to-know), so the answer
+  # is a persona who holds both by assignment rather than a widening of
+  # somebody who should not. personas.yaml adds `nadia` and tuples.yaml puts
+  # her in both segments; see the note there.
+  new-beneficiary-payment: { roles: [payments-ops, compliance-officer, compliance-contact] }

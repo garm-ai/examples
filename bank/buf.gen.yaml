@@ -1,6 +1,44 @@
 version: v2
 inputs:
   - directory: proto
+    # ONE adopted package is still copied in here, and this is the reason.
+    #
+    # There used to be three — web.v1, tools.taxonomy.v1 and garm.tasks.v1 —
+    # because `garm catalogue build --proto proto` read one directory and
+    # anything the catalogue declared had to be in it. ../catalogue.yaml names
+    # the packages now and the builder reads them out of the module cache at the
+    # version go.mod pins, so web.v1 and garm.tasks.v1 are gone from this tree
+    # and what buf compiles no longer has to be kept equal by hand to what the
+    # catalogue declares.
+    #
+    # tools/taxonomy cannot go yet, and the obstacle is not the builder. Lint
+    # rule L20 refuses a tool naming an undeclared tool set, as an ERROR, and it
+    # runs inside THIS plugin — which buf invokes over one directory. The
+    # research assistant declares `sets: ["research"]`, `research` is a word
+    # github.com/garm-ai/tools/taxonomy declares, and a declaration the plugin
+    # cannot see is a declaration that does not exist as far as L20 is
+    # concerned. `garm lint` and `garm catalogue build` see the assembled
+    # catalogue and are content either way; buf generate is not, and it is the
+    # step that produces the Go this tree commits.
+    #
+    # So the copy stays until a deployment declares its own vocabulary in
+    # catalogue.yaml — the design record's §7, which also removes the import
+    # that makes it reachable at all — or until L20 joins A3 in the group the
+    # plugin degrades to a warning on a partial set, which is where a
+    # whole-catalogue rule belongs. Recorded as a gap in garm-ai/stack.
+    #
+    # Its Go is still NOT generated here: `go get` brought the generated
+    # messages under the go_package that file names, and a second copy
+    # registers the same descriptor file twice and panics in protoregistry at
+    # init.
+    #
+    # third_party/proto is not an input here either, and that is a different
+    # case that has not changed: the garm annotations declare no tools, so they
+    # are not an input to the CATALOGUE either, and they exist only because this
+    # tree's own .proto files have to `import` them by their real path. They
+    # stay vendored and `mise run vendor-check` still watches them.
+    exclude_paths:
+      - proto/tools
 plugins:
   - remote: buf.build/protocolbuffers/go
     out: gen

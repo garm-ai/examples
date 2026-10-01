@@ -20,7 +20,7 @@
 package bankv1
 
 import (
-	_ "github.com/garm-ai/garm/contracts/garm/tool/v1"
+	_ "github.com/garm-ai/contracts/garm/tool/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -38,7 +38,7 @@ var File_bank_v1_taxonomy_proto protoreflect.FileDescriptor
 
 const file_bank_v1_taxonomy_proto_rawDesc = "" +
 	"\n" +
-	"\x16bank/v1/taxonomy.proto\x12\abank.v1\x1a\x17garm/tool/v1/tool.protoB\xd0\a\xa2\xb5\x18\x92\x05\n" +
+	"\x16bank/v1/taxonomy.proto\x12\abank.v1\x1a\x17garm/tool/v1/tool.protoB\x9c\t\xa2\xb5\x18\x92\x05\n" +
 	"P\n" +
 	"\vpii-contact\x12AContact details a customer gave us: email, phone, postal address.\n" +
 	"\xcd\x01\n" +
@@ -48,14 +48,16 @@ const file_bank_v1_taxonomy_proto_rawDesc = "" +
 	"\xb1\x01\n" +
 	"\x03kyc\x12\xa9\x01Know-your-customer and sanctions screening. Access is itself reportable in several jurisdictions, and tipping off a screened party is a criminal offence in some of them.\n" +
 	"~\n" +
-	"\tcard-data\x12qCard numbers and related data in PCI scope. Never rendered in full: the redaction is the control, not a courtesy.\xaa\xb5\x18\xff\x01\n" +
+	"\tcard-data\x12qCard numbers and related data in PCI scope. Never rendered in full: the redaction is the control, not a courtesy.\xaa\xb5\x18\xcb\x03\n" +
 	"V\n" +
 	"\asupport\x12KWhat a first-line support agent may reach while a customer is on the phone.\n" +
 	"y\n" +
 	"\bpayments\x12mMoving money. Separate from support so a support session cannot reach it even when the human behind it could.\n" +
 	"*\n" +
 	"\n" +
-	"compliance\x12\x1cScreening and investigation.Z3github.com/garm-ai/examples/bank/gen/bank/v1;bankv1b\x06proto3"
+	"compliance\x12\x1cScreening and investigation.\n" +
+	"\xc9\x01\n" +
+	"\fself-service\x12\xb8\x01What a CUSTOMER may reach on their own account, through the digital channel. The only set in this file that is not a staff catalogue, and the only one whose holder is outside the bank.Z3github.com/garm-ai/examples/bank/gen/bank/v1;bankv1b\x06proto3"
 
 var file_bank_v1_taxonomy_proto_goTypes = []any{}
 var file_bank_v1_taxonomy_proto_depIdxs = []int32{

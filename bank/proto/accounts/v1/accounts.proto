@@ -12,6 +12,7 @@ package accounts.v1;
 
 import "buf/validate/validate.proto";
 import "bank/v1/taxonomy.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 
 option go_package = "github.com/garm-ai/examples/bank/gen/accounts/v1;accountsv1";
@@ -115,6 +116,9 @@ message GetCustomerResponse {
 }
 
 service AccountsService {
+  // Who is answerable for these tools; shown on every card built from them.
+  option (garm.meta.v1.owner) = { team: "retail-accounts" };
+
   rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse) {
     option (garm.tool.v1.tool) = {
       name: "get_balance"
@@ -123,7 +127,23 @@ service AccountsService {
       verb: VERB_READ
       min_clearance: CLEARANCE_INTERNAL
       compartments: ["financial"]
-      sets: ["support", "payments"]
+      // `self-service` IS NOT A WIDENING, and it is not optional either.
+      //
+      // Not a widening: the only role naming that set is `retail-customer`,
+      // which already holds `financial` at INTERNAL with READ and therefore
+      // already reached this tool — as an UNSCOPED session, which is the thing
+      // auth/claims.yaml has just stopped being. A set narrows and never
+      // grants; adding a name here hands nothing to anybody who did not hold
+      // the clearance and the compartment anyway.
+      //
+      // Not optional: tool sets FOLD BY INTERSECTION down a delegation chain,
+      // so a concierge run acting for a customer can never be scoped wider
+      // than the customer's own token. Leaving this tool out of
+      // `self-service` would not merely narrow the customer's direct reach —
+      // it would empty the concierge's allowlist, since all three tools it
+      // may call are in staff sets. The customer's scope IS the floor of
+      // every run they start.
+      sets: ["support", "payments", "self-service"]
       effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
       guidance: {
         when_to_use: "The customer asks what they have, or you need to check "
@@ -145,7 +165,13 @@ service AccountsService {
       verb: VERB_READ
       min_clearance: CLEARANCE_INTERNAL
       compartments: ["pii-contact"]
-      sets: ["support", "compliance"]
+      // `self-service` for the reason get_balance's comment gives: the
+      // concierge calls this tool, and a scoped customer is the floor of the
+      // fold. The MASKED shape is what a customer gets, as it always was —
+      // a set decides which tools a session sees, never which fields come
+      // back, and `pii-identity` is still the compartment this role does not
+      // hold.
+      sets: ["support", "compliance", "self-service"]
       effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
       guidance: {
         when_to_use: "You need to identify or contact a customer."

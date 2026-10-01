@@ -15,6 +15,7 @@ package screening.v1;
 
 import "buf/validate/validate.proto";
 import "bank/v1/taxonomy.proto";
+import "garm/meta/v1/meta.proto";
 import "garm/tool/v1/tool.proto";
 
 option go_package = "github.com/garm-ai/examples/bank/gen/screening/v1;screeningv1";
@@ -87,6 +88,13 @@ message ScreenPartyResponse {
 }
 
 service ScreeningService {
+  // Who is answerable for this tool; shown on every card built from it.
+  // Financial crime, not a platform team: the people who can act on a match.
+  option (garm.meta.v1.owner) = {
+    team: "financial-crime"
+    contact: "#fincrime-screening"
+  };
+
   rpc ScreenParty(ScreenPartyRequest) returns (ScreenPartyResponse) {
     option (garm.tool.v1.tool) = {
       name: "screen_party"

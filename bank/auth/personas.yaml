@@ -14,15 +14,27 @@
 # side: this is the dev-mode stand-in for tuples.yaml plus claims.yaml, not an
 # approximation of a different policy.
 
+# Every persona in this file belongs to the bank, and every token minted from
+# it says so. The STS refuses to exchange a subject token whose tenant is
+# empty — confinement depends on the value flowing from a verified token — so
+# without this line both doors fail at the exchange with an access_denied that
+# says nothing about tenants. `garmdev idp --tenant` overrides it; a persona's
+# own `tenant:` overrides both. See devkit's README.
+tenant: bank
+
 # A role is a BUNDLE of claims, and bundling is an identity provider's job.
 # garm never sees a role — it receives the clearance, compartments and verbs a
 # role expands to.
 roles:
   support-desk:
+    # `internet` and `research`: the adopted web.v1.fetch_page tool, for the
+    # research-assistant agent. Same bundle as claims.yaml's support-desk,
+    # and it has to stay that way: this file is the dev-mode stand-in for
+    # what claims.yaml computes from a real STS exchange.
     clearance: INTERNAL
-    compartments: [pii-contact, financial]
+    compartments: [pii-contact, financial, internet]
     verbs: [READ]
-    tool_sets: [support]
+    tool_sets: [support, research]
 
   card-support:
     clearance: CONFIDENTIAL
@@ -42,16 +54,52 @@ roles:
     verbs: [READ]
     tool_sets: [compliance]
 
+  compliance-contact:
+    clearance: INTERNAL
+    compartments: [pii-contact]
+    verbs: [READ]
+    tool_sets: [compliance]
+
   payments-ops:
     clearance: RESTRICTED
     compartments: [financial]
     verbs: [READ, DESTRUCTIVE]
     tool_sets: [payments]
 
+  payments-initiator:
+    # WRITE in the `payments` set: what it takes to START the
+    # new-beneficiary-payment agent, whose door is VERB_WRITE while the payment
+    # inside it is VERB_DESTRUCTIVE. Verbs are a set, not a lattice. claims.yaml
+    # carries the full reasoning, including why this is not a line in
+    # payments-ops.
+    clearance: RESTRICTED
+    compartments: [financial]
+    verbs: [WRITE]
+    tool_sets: [payments]
+
+  # The approval queue: the seven garm.tasks.v1 tools carrying
+  # `sets: ["triage"]`. A role of its own so that granting it to sam and priya
+  # does not widen payments-ops and compliance-officer, which are also two
+  # agents' ceilings. claims.yaml carries the full reasoning, including why it
+  # reaches decide_task now and did not at contracts v0.3.0.
+  task-triage:
+    clearance: PUBLIC
+    compartments: []
+    verbs: [READ, WRITE]
+    tool_sets: [triage]
+
+  # `self-service`: the concierge door, concierge_run, and the three READ tools
+  # the concierge may call. It names a set now and named none before, and the
+  # omission was a live clearance window rather than a narrowing — a nil scope
+  # is UNSCOPED, so this role reached `garm.tasks.v1`'s staff approval queue.
+  # claims.yaml carries the full reasoning, and this file has to agree with it
+  # or the devkit path and the governed path grant a customer different
+  # authority for the same identity.
   retail-customer:
     clearance: INTERNAL
     compartments: [financial, pii-contact]
     verbs: [READ]
+    tool_sets: [self-service]
 
 users:
   # `subject` is what lands in `sub` and therefore in every ledger row. Real
@@ -59,7 +107,20 @@ users:
   # would teach people to key dashboards on names.
   jdoe:
     subject: "employee:jdoe"
-    roles: [support-desk, card-support]
+    # Three roles, and the third is the one the agent demo turns on.
+    #
+    # The fold intersects, so an assistant acting for jdoe reaches
+    # initiate_payment only if jdoe reaches it too. A support agent who could
+    # not move money themselves and whose assistant could would be the
+    # confused deputy this system exists to prevent, so jdoe holds
+    # payments-ops outright — a payments clerk who also works the phones.
+    #
+    # What stops jdoe simply paying without asking anybody is not this file:
+    # it is initiate_payment's MODE_GRANT and approver predicate, and spec
+    # §3.5's exclusion of the run's own subject, which is what makes this
+    # four-eyes rather than a formality. jdoe qualifies for that predicate
+    # arithmetically and is refused anyway; see bank/auth_test.go.
+    roles: [support-desk, card-support, payments-ops]
 
   amir:
     subject: "employee:amir"
@@ -67,11 +128,20 @@ users:
 
   priya:
     subject: "employee:priya"
-    roles: [compliance-officer]
+    # Two roles, the second for the compliance-screen agent: it calls
+    # get_customer, which needs pii-contact, and the fold intersects — an
+    # agent that could identify a customer for an officer who could not
+    # would reach further than the human it acts for. Same pair as
+    # claims.yaml's compliance-team segment.
+    # task-triage: priya works the approval queue. A role of its own, so the
+    # compliance-screen agent's ceiling is unchanged — see claims.yaml.
+    roles: [compliance-officer, compliance-contact, task-triage]
 
   sam:
     subject: "employee:sam"
-    roles: [payments-ops]
+    # task-triage for the same reason, and it leaves his payments session at
+    # READ and DESTRUCTIVE rather than adding WRITE to payments-ops.
+    roles: [payments-ops, task-triage]
 
   # The customer behind bank's own fixture data (data.go's cust_ab12cd), so a
   # token minted for her and a call against the running bank line up.
@@ -79,12 +149,73 @@ users:
     subject: "customer:cust_ab12cd"
     roles: [retail-customer]
 
+  # The one persona who can run the new-beneficiary payment, and the reason she
+  # exists rather than a role being added to sam.
+  #
+  # The fold intersects: a run reaches the minimum of the agent's ceiling and
+  # whoever it acts for. That agent's four steps need `financial` at RESTRICTED
+  # with DESTRUCTIVE in the `payments` set (the payment), `kyc` in `compliance`
+  # (the screening) and `pii-contact` (the lookup) — and nobody above holds both
+  # halves. jdoe and sam hold payments-ops and no `kyc`; priya holds `kyc` and
+  # nothing financial. That is not an oversight to patch: screening.proto's whole
+  # point is that seniority is not need-to-know, and giving a first-line desk
+  # `kyc` to make a demo work would undo it.
+  #
+  # So this is a payments-operations clerk who is ALSO assigned to financial
+  # crime — three roles by assignment, in two segments, which is a real shape in
+  # a bank and a visible one here. She is not the approver of her own payment:
+  # the grant predicate excludes the run's own subject, so sam or jdoe approves.
+  nadia:
+    subject: "employee:nadia"
+    roles: [payments-ops, compliance-officer, compliance-contact, payments-initiator]
+
 agents:
   # may_act_for is enforced when MINTING, and garm never sees it. garm folds a
   # delegation chain it is given and can only narrow it. Try
   # `?user=amir&as=support-assistant` and watch it refuse: amir is not in
   # may_act_for below.
+  #
+  # Same two roles as claims.yaml's agents: block, and for the same reason:
+  # this file is the dev-mode stand-in for what claims.yaml computes from a
+  # real STS exchange, so a role list that drifted from claims.yaml would mean
+  # the devkit path and the governed path grant the assistant different
+  # authority for the same identity — exactly the disagreement auth/README.md
+  # says these two files must not have.
   support-assistant:
     subject: "agent:support-assistant"
+    roles: [support-desk, payments-ops]
+    may_act_for: [jdoe]
+
+  # Same role lists as claims.yaml's agents: block, for the reason the
+  # assistant's comment gives. may_act_for mirrors tuples.yaml's can_invoke:
+  # one persona per agent.
+  card-guardian:
+    subject: "agent:card-guardian"
+    roles: [support-desk, card-support]
+    may_act_for: [jdoe]
+
+  concierge:
+    subject: "agent:concierge"
+    roles: [retail-customer]
+    may_act_for: [ada]
+
+  compliance-screen:
+    subject: "agent:compliance-screen"
+    roles: [compliance-officer, compliance-contact]
+    may_act_for: [priya]
+
+  research-assistant:
+    subject: "agent:research-assistant"
     roles: [support-desk]
     may_act_for: [jdoe]
+
+  # The new-beneficiary payment. Same three roles as claims.yaml's agents:
+  # block, for the reason the assistant's comment gives — a role list that
+  # drifted would grant the devkit path and the governed path different
+  # authority for the same identity. may_act_for is nadia and nobody else: she
+  # is the only persona holding the union this graph needs, and tuples.yaml's
+  # can_invoke says the same thing on the STS path.
+  new-beneficiary-payment:
+    subject: "agent:new-beneficiary-payment"
+    roles: [payments-ops, compliance-officer, compliance-contact]
+    may_act_for: [nadia]

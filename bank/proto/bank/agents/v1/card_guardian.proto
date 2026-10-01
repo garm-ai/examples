@@ -1,0 +1,160 @@
+// The card guardian: a lost-or-stolen card, frozen while the customer is
+// still on the phone.
+//
+// The second agent in this tree, and the one that shows an allowlist doing
+// something the support assistant's does not: it holds a WRITE tool
+// (freeze_card) and deliberately not its compensating one (unfreeze_card).
+// An agent that can freeze and cannot unfreeze is an agent whose worst
+// mistake costs one phone call, which is the grading cards.proto argued for.
+//
+// Same two annotations as support_assistant.proto, answering the same two
+// questions: (garm.agent.v1.agent) is what this agent RUNS AS, and
+// (garm.tool.v1.tool) on each RPC is what a CALLER needs to see and start it.
+syntax = "proto3";
+
+package bank.agents.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1";
+
+// What a caller hands the agent. Same two fields, same constraints, as
+// SupportRequest, and for the same reason: the request is where a caller's
+// intent enters the system, and a schema is where it is constrained before a
+// model reads it.
+message CardGuardianRequest {
+  // Requests are never sanitised on the way in — min_clearance on the RPC
+  // governs who may call at all — so PUBLIC here says nothing about who may
+  // start a run. mask rather than omit because omit on a presence-less scalar
+  // makes "redacted" and "empty" the same value (L6).
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  // The customer whose card is lost or stolen.
+  string customer_id = 1 [(buf.validate.field).required = true,
+                          (buf.validate.field).string.pattern = "^cust_[a-z0-9]{6,32}$"];
+
+  // What the customer reported, in the member of staff's own words: which
+  // card, if they know, and what happened to it.
+  string request = 2 [(buf.validate.field).required = true,
+                      (buf.validate.field).string.min_len = 1,
+                      (buf.validate.field).string.max_len = 2000];
+}
+
+service CardGuardian {
+  // The team that owns the card tools owns the agent that freezes them.
+  option (garm.meta.v1.owner) = {
+    team: "card-services"
+    contact: "#card-services"
+  };
+
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+
+    // CONFIDENTIAL because freeze_card declares min_clearance CONFIDENTIAL.
+    // card-data because list_cards and freeze_card are compartmented to it;
+    // pii-contact because get_customer is. Nothing wider: no financial, so a
+    // run acting for a first-line agent with a balance tool in reach still
+    // cannot call one through this agent.
+    principal: {
+      clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["card-data", "pii-contact"]
+    }
+
+    model: { alias: "fast" }
+
+    // Same bounds as the support assistant. A freeze is three calls and an
+    // answer; the bounds are a ceiling on what a stuck run can cost, not an
+    // estimate of a good one.
+    bounds: {
+      max_steps: 12
+      max_tokens: 200000
+      max_tool_calls: 30
+      timeout: { seconds: 600 }
+    }
+
+    // Pinned by hash, like every prompt in this tree. `mise run prompt-sha`
+    // rewrites it; lint rule A2 and `mise run prompt-sha-check` fail the
+    // build when it has drifted.
+    prompts: [{
+      key: "system"
+      value: {
+        path: "prompts/card-guardian.md"
+        sha256: "12dc59514779b6d5b96b02f78b701817c42bc34911b72b5b97a49bf545983b34"
+      }
+    }]
+
+    // Three tools, and unfreeze_card is not one of them. The prompt says
+    // "never unfreeze" too, but a prompt is advice and an allowlist is a
+    // wall: a card this agent froze is unfrozen by a person, on purpose.
+    tools: [
+      { fqn: "accounts.v1.get_customer" },
+      { fqn: "cards.v1.list_cards" },
+      // freeze_card's own validation accepts a reason of eight characters.
+      // Ten is the floor for a reason a model wrote: it lands in the ledger
+      // and someone reads it six months later. Narrows, never widens.
+      {
+        fqn: "cards.v1.freeze_card"
+        guard: "args.reason.size() >= 10"
+      }
+    ]
+  };
+
+  // The governed door. The labels are the agent's own: a caller who can start
+  // this run holds card-data and CONFIDENTIAL themselves, so the fold that
+  // confines the run never removes the one tool the run exists to call.
+  rpc Invoke(CardGuardianRequest) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "card_guardian"
+      title: "Ask the card guardian"
+      description: "Start a card-guardian run for one customer who has reported "
+                   "a card lost or stolen. Returns a run reference immediately; "
+                   "the answer is collected with card_guardian_run. The run "
+                   "acts for the caller and can freeze, never unfreeze."
+      verb: VERB_WRITE
+      min_clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["card-data", "pii-contact"]
+      sets: ["support"]
+      // Two Invokes are two runs. reversibility and external stay unset for
+      // the reason support_assistant.proto gives: the freeze the run may
+      // perform is cards.v1.freeze_card's own effect, declared there.
+      effects: { idempotent: false }
+      guidance: {
+        when_to_use: "A customer has reported a card lost, stolen, or used "
+                     "without their knowledge, and you want it frozen now."
+        when_not_to_use: "Not for a disputed transaction on a card the "
+                         "customer still holds, and never to unfreeze: this "
+                         "agent cannot, and asking it to will not change that."
+        on_error: "A refusal here is about YOUR authority to start a run, not "
+                  "about the customer or the card. Do not rephrase and retry."
+      }
+    };
+  }
+
+  // A5: identical min_clearance, compartments and sets to Invoke, so a
+  // caller who can start a run can read its result, and no one else can.
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "card_guardian_run"
+      title: "Read a card-guardian run"
+      description: "The state and, once finished, the result of one run. "
+                   "Answers not-found for a run the caller did not start."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["card-data", "pii-contact"]
+      sets: ["support"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "After Invoke, to collect the answer."
+        when_not_to_use: "Do not poll faster than once a second. Every poll is "
+                         "a governed call and a ledger row."
+      }
+    };
+  }
+}

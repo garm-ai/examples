@@ -14,7 +14,7 @@ modules:
   - path: proto
   # The garm annotations, vendored. A module of its own so they import by their
   # real path without being generated — Go for them already exists in
-  # github.com/garm-ai/garm/contracts, and a second local copy would register
+  # github.com/garm-ai/contracts, and a second local copy would register
   # the same proto file twice and panic at init.
   - path: third_party/proto
     lint:

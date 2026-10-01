@@ -71,6 +71,27 @@ func domains() []domain {
 
 func run() error {
 	url := flag.String("nats", nats.DefaultURL, "NATS server URL")
+	// Taken from the runtime rather than written down, because the number is
+	// arithmetic about the whole plane and not a preference of this service's.
+	// Since tool-go v0.6.0 a unit of concurrency is a whole micro service
+	// instance — a handler runs synchronously, so a second call in flight
+	// needs a second subscription — and every instance answers $SRV.INFO
+	// separately into a garmd discovery round collected in a channel buffered
+	// at 64.
+	//
+	// It costs FOUR TIMES the default here and nowhere else, because this
+	// process is four services: accounts, cards, payments and screening each
+	// get their own instances, so the default of four is sixteen responders
+	// from this binary alone. That is already counted in the arithmetic behind
+	// DefaultConcurrency — the reference plane is around eleven services with
+	// bankd's four among them — which is why the right answer is to take the
+	// constant and not to pick a number that looks small next to it.
+	//
+	// A bank needing more throughput runs more bankd processes behind the
+	// queue group, which costs discovery one identity per process instead of
+	// n per service.
+	concurrency := flag.Int("concurrency", garmtool.DefaultConcurrency,
+		"Calls in flight at once, per tool, per domain — one micro service instance each")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -98,7 +119,16 @@ func run() error {
 	// problem wearing an availability problem's clothes.
 	svcs := make([]*garmtool.Service, 0, len(domains()))
 	for _, d := range domains() {
-		s := garmtool.New(d.name, version())
+		// The logger goes in so each domain reports the configuration it is
+		// actually running with — the concurrency included, whether it was
+		// passed or defaulted — on this process's own log stream. A library
+		// that decides for itself where to write is one every service then
+		// has to work out how to silence, so garmtool says nothing until it
+		// is given somewhere to say it.
+		s := garmtool.New(d.name, version(),
+			garmtool.WithConcurrency(*concurrency),
+			garmtool.WithLogger(log.With("domain", d.name)),
+		)
 		if err := d.register(s); err != nil {
 			return fmt.Errorf("registering %s: %w", d.name, err)
 		}

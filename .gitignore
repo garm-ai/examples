@@ -16,3 +16,7 @@ calculator/gen/garm/
 
 # Catalogue artifacts are built, not committed.
 *.binpb
+
+# The subagent-driven-development workspace: ledgers, briefs, review
+# packages. Git-ignored scratch an agent writes for itself.
+/.superpowers/

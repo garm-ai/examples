@@ -1,0 +1,162 @@
+// The compliance screen: one party, one screening call, one report.
+//
+// The agent in this tree whose whole value is what it does NOT do. It runs a
+// sanctions and PEP check and reports what came back, and it stops there: it
+// does not decide, and it holds nothing it could decide with. screening.proto
+// makes the point that being allowed to call something can itself be the
+// sensitive part, and this agent is that point with a prompt on it — kyc is
+// the compartment, and a run for anyone who does not hold it never sees the
+// tool.
+//
+// Same two annotations as support_assistant.proto, answering the same two
+// questions: (garm.agent.v1.agent) is what this agent RUNS AS, and
+// (garm.tool.v1.tool) on each RPC is what a CALLER needs to see and start it.
+syntax = "proto3";
+
+package bank.agents.v1;
+
+import "buf/validate/validate.proto";
+import "bank/v1/taxonomy.proto";
+import "garm/agent/v1/agent.proto";
+import "garm/meta/v1/meta.proto";
+import "garm/tool/v1/tool.proto";
+
+option go_package = "github.com/garm-ai/examples/bank/gen/bank/agents/v1;bankagentsv1";
+
+// What a caller hands the agent: the customer the screening is about, the
+// party to screen, and the request. Three fields, because a screening names
+// its subject as a NAME and get_customer names one as an identifier, and
+// letting a model bridge the two from memory is how the wrong person gets
+// screened.
+message ComplianceScreenRequest {
+  // Requests are never sanitised on the way in — min_clearance on the RPC
+  // governs who may call at all — so PUBLIC here says nothing about who may
+  // start a run. mask rather than omit because omit on a presence-less scalar
+  // makes "redacted" and "empty" the same value (L6).
+  option (garm.tool.v1.default_field_policy) = {
+    read: CLEARANCE_PUBLIC
+    on_deny: { mask: {} }
+  };
+
+  // The customer this screening is about.
+  string customer_id = 1 [(buf.validate.field).required = true,
+                          (buf.validate.field).string.pattern = "^cust_[a-z0-9]{6,32}$"];
+
+  // The party to screen, exactly as it should be sent to the lists. Same
+  // bounds as screen_party's own full_name, so a name the tool would refuse
+  // is refused before a model spends a token on it.
+  string party_name = 2 [(buf.validate.field).required = true,
+                         (buf.validate.field).string.min_len = 2,
+                         (buf.validate.field).string.max_len = 200];
+
+  // What the compliance officer is asking for, in their own words.
+  string request = 3 [(buf.validate.field).required = true,
+                      (buf.validate.field).string.min_len = 1,
+                      (buf.validate.field).string.max_len = 2000];
+}
+
+service ComplianceScreen {
+  // The people who can act on a match own the agent that finds one.
+  option (garm.meta.v1.owner) = {
+    team: "financial-crime"
+    contact: "#financial-crime"
+  };
+
+  option (garm.agent.v1.agent) = {
+    mode: MODE_REACT
+
+    // CONFIDENTIAL because screen_party declares min_clearance CONFIDENTIAL.
+    // kyc because screen_party is compartmented to it; pii-contact because
+    // get_customer is. Note what CONFIDENTIAL means for the result: the
+    // matches themselves read at RESTRICTED, so a run at this ceiling sees
+    // requires_review and not the names behind it. That is the projection
+    // working, and the prompt tells the model to report exactly that.
+    principal: {
+      clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["kyc", "pii-contact"]
+    }
+
+    model: { alias: "fast" }
+
+    // Same bounds as the support assistant: a ceiling on what a stuck run can
+    // cost, not an estimate of a good one.
+    bounds: {
+      max_steps: 12
+      max_tokens: 200000
+      max_tool_calls: 30
+      timeout: { seconds: 600 }
+    }
+
+    // Pinned by hash, like every prompt in this tree. `mise run prompt-sha`
+    // rewrites it; lint rule A2 and `mise run prompt-sha-check` fail the
+    // build when it has drifted.
+    prompts: [{
+      key: "system"
+      value: {
+        path: "prompts/compliance-screen.md"
+        sha256: "3ce92b75f9cb371891917fa5cc987aa7055bc4a140855a2e8241758bf8ae00be"
+      }
+    }]
+
+    // Two READ tools. Nothing here changes an account, a card or a payment,
+    // and nothing here decides an outcome: a match is handed to a person.
+    tools: [
+      { fqn: "accounts.v1.get_customer" },
+      { fqn: "screening.v1.screen_party" }
+    ]
+  };
+
+  // The governed door, in the compliance catalogue at the agent's own
+  // labels. VERB_READ because a compliance officer's token holds READ and
+  // nothing else, and everything this run can do is a read. kyc on the door
+  // as well as on the tool inside: a caller who could not see a screening
+  // result must not learn that a screening agent exists from its form.
+  rpc Invoke(ComplianceScreenRequest) returns (garm.agent.v1.RunRef) {
+    option (garm.tool.v1.tool) = {
+      name: "compliance_screen"
+      title: "Ask the compliance screen"
+      description: "Start a compliance-screen run for one party. Returns a run "
+                   "reference immediately; the answer is collected with "
+                   "compliance_screen_run. The run screens the named party "
+                   "and reports the result. It does not decide anything."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["kyc", "pii-contact"]
+      sets: ["compliance"]
+      // Two Invokes are two runs. reversibility and external stay unset for
+      // the reason support_assistant.proto gives; screen_party declares its
+      // own external effect on its own account.
+      effects: { idempotent: false }
+      guidance: {
+        when_to_use: "A compliance officer wants a party screened against the "
+                     "sanctions and PEP lists and the result reported."
+        when_not_to_use: "Never from a customer-facing session, and never to "
+                         "decide an outcome. The result goes to compliance and "
+                         "nowhere else."
+        on_error: "A refusal here is about YOUR authority to start a run, not "
+                  "about the party. Do not rephrase and retry."
+      }
+    };
+  }
+
+  // A5: identical min_clearance, compartments and sets to Invoke, so a
+  // caller who can start a run can read its result, and no one else can.
+  rpc GetRun(garm.agent.v1.RunRef) returns (garm.agent.v1.RunStatus) {
+    option (garm.tool.v1.tool) = {
+      name: "compliance_screen_run"
+      title: "Read a compliance-screen run"
+      description: "The state and, once finished, the result of one run. "
+                   "Answers not-found for a run the caller did not start."
+      verb: VERB_READ
+      min_clearance: CLEARANCE_CONFIDENTIAL
+      compartments: ["kyc", "pii-contact"]
+      sets: ["compliance"]
+      effects: { idempotent: true reversibility: REVERSIBILITY_FULL external: false }
+      guidance: {
+        when_to_use: "After Invoke, to collect the answer."
+        when_not_to_use: "Do not poll faster than once a second. Every poll is "
+                         "a governed call and a ledger row."
+      }
+    };
+  }
+}

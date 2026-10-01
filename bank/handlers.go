@@ -89,7 +89,12 @@ func (Payments) InitiatePayment(_ context.Context, r *paymentsv1.InitiatePayment
 	if len(id) > 36 {
 		id = id[:36]
 	}
-	status := paymentsv1.PaymentStatus_PAYMENT_STATUS_PENDING_APPROVAL
+	// SUBMITTED, not PENDING_APPROVAL: by the time this handler runs, the
+	// approval has already happened — garmd let the call through only with
+	// a human's grant for exactly these values. A response that said
+	// "pending approval" after that made the agent report a payment as
+	// waiting on a person who had just said yes.
+	status := paymentsv1.PaymentStatus_PAYMENT_STATUS_SUBMITTED
 	out := &paymentsv1.InitiatePaymentResponse{PaymentId: &id, Status: &status}
 	payments[r.GetIdempotencyKey()] = out
 	return proto.Clone(out).(*paymentsv1.InitiatePaymentResponse), nil

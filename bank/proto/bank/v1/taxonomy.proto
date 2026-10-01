@@ -53,6 +53,24 @@ option (garm.tool.v1.tool_sets) = {
       description: "Moving money. Separate from support so a support session "
                    "cannot reach it even when the human behind it could." },
     { name: "compliance"
-      description: "Screening and investigation." }
+      description: "Screening and investigation." },
+    { name: "self-service"
+      description: "What a CUSTOMER may reach on their own account, through "
+                   "the digital channel. The only set in this file that is "
+                   "not a staff catalogue, and the only one whose holder is "
+                   "outside the bank." }
   ]
 };
+
+// WHY self-service IS DECLARED HERE AND NOT IN proto/tools/taxonomy/v1.
+//
+// That file is an ADOPTED COPY of github.com/garm-ai/tools/taxonomy, kept
+// verbatim so that re-adopting the package is a copy rather than a merge —
+// its own header says so, and L29 fails a catalogue whose two sources declare
+// the same name differently. A bank-specific name added there would be lost
+// the next time the upstream file moved, and lost silently: the role naming it
+// would keep resolving, match no tool, and the customer would simply stop
+// reaching their own concierge. `self-service` is a retail-banking concept
+// about the bank's own channel, no tools package reaches it, and this is the
+// file that everybody here edits. catalogue.yaml declares no `taxonomy:`
+// block, so proto is the only source of the vocabulary either way.
