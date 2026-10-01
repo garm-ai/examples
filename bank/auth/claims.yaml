@@ -117,6 +117,32 @@ roles:
     verbs: [READ, DESTRUCTIVE]
     tool_sets: [payments]
 
+  payments-initiator:
+    # WRITE in the `payments` set, and nothing else. The one thing needed to
+    # START the new-beneficiary-payment agent, which no other role here could
+    # supply.
+    #
+    # WHY IT IS NOT A LINE IN payments-ops. Verbs are a SET and not a lattice:
+    # DESTRUCTIVE does not imply WRITE anywhere in this system. An agent's door
+    # grades what IT does — it creates a run — so it is VERB_WRITE, while the
+    # payment inside the run is VERB_DESTRUCTIVE and carries the grant and the
+    # audit. A caller therefore needs both verbs, and payments-ops deliberately
+    # holds only READ and DESTRUCTIVE: the two payments tools' own verbs, kept
+    # that way by the same ruling that gave task-triage a role of its own rather
+    # than adding WRITE here, because payments-ops is also two agents' ceiling.
+    # Adding WRITE to it would widen the support assistant and this agent as a
+    # side effect of letting one clerk start a run.
+    #
+    # NOT HELD BY THE AGENT, and that asymmetry is the point rather than an
+    # omission: `verb` on Invoke is checked against the CALLER at the door. The
+    # agent's own ceiling is what its four steps need, and none of them is a
+    # WRITE. A role in `agents:` that bought nothing would be authority nobody
+    # could name a use for, which is how a ceiling stops meaning anything.
+    clearance: RESTRICTED
+    compartments: [financial]
+    verbs: [WRITE]
+    tool_sets: [payments]
+
   task-triage:
     # The seven tools of `garm.tasks.v1` that carry `sets: ["triage"]`:
     # list_tasks, get_task, claim_task, release_task, triage_task, and — since
@@ -173,6 +199,11 @@ segments:
   fraud-team:      { kind: employee, roles: [fraud-analyst] }
   compliance-team: { kind: employee, roles: [compliance-officer, compliance-contact] }
   payments-team:   { kind: employee, roles: [payments-ops] }
+  # A SEGMENT OF ITS OWN, for the reason payments-initiator is a role of its
+  # own: adding it to payments-team would hand WRITE in the payments set to
+  # jdoe and sam, who are in that segment and have no use for it. One segment,
+  # one member, and the narrowest thing that works.
+  payments-workflow-team: { kind: employee, roles: [payments-initiator] }
   retail:          { kind: customer, roles: [retail-customer] }
 
 # An agent's own authority. The fold turns it into a ceiling automatically —

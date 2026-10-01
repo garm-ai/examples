@@ -131,3 +131,9 @@ in_segment:
     segment: payments-team
   - principal: employee:nadia
     segment: compliance-team
+  # And a third, for the one verb no existing role carried: payments-workflow-team
+  # is WRITE in the `payments` set, which is what the agent's VERB_WRITE door
+  # demands of a CALLER. A segment of its own so jdoe and sam, who are in
+  # payments-team, do not acquire it.
+  - principal: employee:nadia
+    segment: payments-workflow-team

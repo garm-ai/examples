@@ -66,6 +66,17 @@ roles:
     verbs: [READ, DESTRUCTIVE]
     tool_sets: [payments]
 
+  payments-initiator:
+    # WRITE in the `payments` set: what it takes to START the
+    # new-beneficiary-payment agent, whose door is VERB_WRITE while the payment
+    # inside it is VERB_DESTRUCTIVE. Verbs are a set, not a lattice. claims.yaml
+    # carries the full reasoning, including why this is not a line in
+    # payments-ops.
+    clearance: RESTRICTED
+    compartments: [financial]
+    verbs: [WRITE]
+    tool_sets: [payments]
+
   # The approval queue: the seven garm.tasks.v1 tools carrying
   # `sets: ["triage"]`. A role of its own so that granting it to sam and priya
   # does not widen payments-ops and compliance-officer, which are also two
@@ -148,7 +159,7 @@ users:
   # the grant predicate excludes the run's own subject, so sam or jdoe approves.
   nadia:
     subject: "employee:nadia"
-    roles: [payments-ops, compliance-officer, compliance-contact]
+    roles: [payments-ops, compliance-officer, compliance-contact, payments-initiator]
 
 agents:
   # may_act_for is enforced when MINTING, and garm never sees it. garm folds a

@@ -403,6 +403,28 @@ service NewBeneficiaryPayment {
         "before. The beneficiary is screened before any money moves, a flagged "
         "party is assessed in writing, and the payment itself waits for a "
         "second person. Returns a run reference immediately."
+      // VERB_WRITE, and the alternative was TRIED rather than assumed.
+      //
+      // VERB_DESTRUCTIVE is the first instinct — the run ends in an irreversible
+      // payment — and lint refuses it here for a good reason: L14, L16 and L21
+      // would then demand this door declare its own MODE_GRANT approval and its
+      // own fail-closed audit, which is a SECOND human approval, taken before
+      // anything has been looked up or screened, on top of the one the payment
+      // already needs. Two gates on one payment is not twice the supervision; it
+      // is an approver asked to decide with nothing in front of them.
+      //
+      // So the grading follows what this call DOES: it creates a run. The
+      // irreversible act is payments.v1.initiate_payment, which declares the
+      // grant, the material fields and the 2555-day audit stream, and which
+      // garmd refuses to serve at all without a verifier and a sink. The
+      // supervision lives where the money moves.
+      //
+      // WHAT THIS COSTS IS A ROLE, and the cost is visible rather than hidden.
+      // Verbs are a SET and not a lattice: DESTRUCTIVE does not imply WRITE.
+      // `payments-ops` holds READ and DESTRUCTIVE — exactly the verbs of the two
+      // payments tools, and claims.yaml records the ruling that kept WRITE out of
+      // it — so no existing role could reach this door. auth/claims.yaml adds
+      // `payments-initiator` for it.
       verb: VERB_WRITE
       min_clearance: CLEARANCE_RESTRICTED
       audience: [AUDIENCE_PERSON]

@@ -884,9 +884,34 @@ whoever it acts for — and no existing persona held both halves: jdoe and sam
 hold `payments-ops` and no `kyc`, priya holds `kyc` and nothing financial.
 That separation is deliberate (`screening.proto`: seniority is not
 need-to-know), so the answer is a persona assigned to both, not a widening of
-somebody who should not be. No new ROLE was needed: `payments-ops` plus
-`compliance-officer` plus `compliance-contact` is exactly the agent's
-`principal` block.
+somebody who should not be.
+
+The AGENT's three roles are existing ones — `payments-ops` plus
+`compliance-officer` plus `compliance-contact` is exactly its `principal`
+block. The CALLER needed one more, and finding out why is worth the paragraph:
+**verbs are a set and not a lattice.** `Invoke` grades what it does — it
+creates a run — so it is `VERB_WRITE`, while the payment inside the run is
+`VERB_DESTRUCTIVE` and carries the grant. `payments-ops` holds `READ` and
+`DESTRUCTIVE`, the two payments tools' own verbs, kept that way by the same
+ruling that gave `task-triage` a role of its own. So no existing role could
+open this door, and `payments-initiator` (`WRITE`, `financial`, RESTRICTED,
+the `payments` set) is the narrowest thing that does. Grading the door
+`VERB_DESTRUCTIVE` instead was tried first and lint refuses it: L14, L16 and
+L21 would then demand this door declare its own grant and audit, which is a
+second human approval taken before anything has been screened.
+
+Run end to end on the plane on 2026-10-01, both branches:
+
+| | clean (`Grace Mwangi`) | flagged (`Ivan Petrov`) |
+|---|---|---|
+| steps dispatched | `get_customer`, `screen_party`, `initiate_payment` | the same plus `compliance_screen` |
+| `requires_review` | `false` | `true`, `match_count` 1 |
+| `compliance_run_id` | absent | the nested run's id |
+| at the payment | parked, `RUN_STATE_WAITING_APPROVAL` | parked |
+| after sam approves | `COMPLETED`, `payment_id` set | `COMPLETED`, `payment_id` set |
+
+And the projection, on the same run: with `kyc` withdrawn from nadia, `GetState`
+returns everything above **except** `requires_review` and `match_count`.
 
 ## Adopting a tool is an entry in the manifest: `garm.tasks.v1`
 
