@@ -255,11 +255,36 @@ trap 'rm -rf "$WORK"' EXIT
 # than the manifest and is dead code the day main carries one.
 git worktree add --detach --quiet "$WORK/base" "$BASE"
 if [ -f "$WORK/base/catalogue.yaml" ]; then
+  # The base carries a manifest, so its catalogue MUST build. A failure here is
+  # a real one — either the base is broken or this CLI refuses something it
+  # used to accept — and it is not this task's business to decide which.
   (cd "$WORK/base" && garm catalogue build -o "$WORK/base.binpb")
+  git worktree remove --force "$WORK/base"
 else
-  garm catalogue build --proto "$WORK/base/bank/proto" -o "$WORK/base.binpb"
+  # A base ref older than the manifest. Its catalogue is composed the old way,
+  # from one proto directory, and THAT TREE MAY NO LONGER BE LINTABLE: rules
+  # arrive over time and are applied to whatever they are pointed at. The bank
+  # before `garm.tasks.v1` was adopted declares a grant-mode approval with no
+  # task queue in its catalogue, which rule P1 now refuses — correctly, and
+  # about a tree nobody is proposing to ship.
+  #
+  # So a failure on this path is NOT a statement about the branch, and must not
+  # read as one. Blocking here would block the very change that retires the
+  # path: the first branch to add catalogue.yaml can never have a green base.
+  if garm catalogue build --proto "$WORK/base/bank/proto" -o "$WORK/base.binpb" 2>"$WORK/base.err"; then
+    git worktree remove --force "$WORK/base"
+  else
+    git worktree remove --force "$WORK/base"
+    echo "NO POLICY DIFF: the base ref $BASE has no catalogue.yaml, and its proto"
+    echo "tree does not build under this CLI. The reason follows. This says nothing"
+    echo "about the branch under review — review the policy change by hand."
+    echo
+    sed 's/^/  | /' "$WORK/base.err"
+    echo
+    echo "This path retires itself once $BASE carries a manifest."
+    exit 0
+  fi
 fi
-git worktree remove --force "$WORK/base"
 
 garm catalogue build -o "$WORK/head.binpb"
 garm catalogue diff "$WORK/base.binpb" "$WORK/head.binpb"
