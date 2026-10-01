@@ -14,6 +14,16 @@ acceptance test.
 | `sts-sign-k1.pem` | the STS's ES256 signing key | exported as `STS_SIGN_KEY_K1` by the `sts` service |
 | `agentd.key` | agentd's `private_key_jwt` client key | `agentd --sts-client-key-file` |
 | `agentd.pub.pem` | the public half, registered as client `agentd` | `clients:` in `deploy/sts/config.yaml` |
+| `studiod.key` | studiod's `private_key_jwt` client key | `studiod --sts-client-key-file` |
+| `studiod.pub.pem` | the public half, registered as client `studiod` | `clients:` in `deploy/sts/config.yaml` |
+
+**Why studiod has one at all.** studiod is the backend for frontend that mints a
+grant when a person approves a task: it authenticates to the STS as itself and
+presents the APPROVER's own token, so the grant records the approver and not
+studiod. Without this key it starts, serves everything else, and logs that no
+token service is configured — and `/studio/approve` refuses, so nothing in the
+plane can sign an approval. That mattered less while agentd kept an embedded
+inbox; it is the only approval surface now that the inbox is retired.
 
 ## What this means
 
