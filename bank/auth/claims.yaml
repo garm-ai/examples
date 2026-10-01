@@ -226,6 +226,55 @@ roles:
 # Which segment grants which roles. Membership itself comes from OpenFGA.
 # A principal holding roles from more than one segment gets the UNION: the
 # highest clearance among them, and the union of compartments and verbs.
+# ---------------------------------------------------------------- services
+#
+# A SERVICE PRINCIPAL ACTS AS ITSELF. Everything above this line is an identity
+# a person has, or a ceiling an agent carries while acting for a person. This
+# block is neither: it is what a component holds when it calls on nobody's
+# behalf, and the authority is checked against the SERVICE rather than against
+# whoever the service happens to be serving.
+#
+# Why that is the right shape, and not an expedient one: artefacts and tasks are
+# written by tools and by people starting processes, and nobody operates those
+# stores directly. Folding a write against the person would make a write verb on
+# storage a prerequisite for every person who can trigger a document-producing
+# tool. Reading keeps the fold, because there the question genuinely is what THIS
+# viewer may see.
+#
+# Declared INLINE rather than by naming a role, and deliberately: a role sits in
+# a namespace a `segments:` entry can reach into, so a service's grant written as
+# a role is one reviewed line away from a whole population holding it. Nothing
+# can name an inline declaration.
+services:
+  # The agent runner (garm-ai/agentd), minting for itself so that a parked run
+  # can open an approval task on tasksd. Before this existed, the runner kept its
+  # own task table and its own HTTP queue, and Studio's queue was empty at the
+  # exact moment there was something to approve.
+  #
+  # IT OPENS ONE TOOL. `garm.tasks.v1.create_task` declares verb: VERB_WRITE,
+  # min_clearance: CLEARANCE_PUBLIC and no compartments, so that is exactly and
+  # only what this holds. This principal is the whole platform's runner, and
+  # whatever it carries, every run it executes can reach — which is the reason to
+  # be mean with it rather than a reason to round up.
+  #
+  # SCOPED, and to one set. `escalation` is the set create_task was moved into
+  # (contracts v0.8.0), named for the act rather than for the caller. An absent
+  # `tool_sets` would mean every set to garmd: every PUBLIC, uncompartmented,
+  # WRITE tool in this catalogue, for every run.
+  #
+  # Nothing validates this set name. `garm claims check` reads `roles:` and not
+  # this block, so a typo passes and fails CLOSED — the mint succeeds, the token
+  # names a set the catalogue never declared, and create_task is unreachable with
+  # no error anywhere. Right direction, bad diagnostic.
+  #
+  # It does NOT hold `artefacts`. Adopting garm.artefacts.v1 must not make a
+  # disclosure decision for anybody, and a runner that could write artefacts
+  # could write them on behalf of every run.
+  agentd:
+    clearance: PUBLIC
+    verbs: [WRITE]
+    tool_sets: [escalation]
+
 segments:
   support-staff:   { kind: employee, roles: [support-desk, card-support] }
   fraud-team:      { kind: employee, roles: [fraud-analyst] }
