@@ -543,6 +543,15 @@ every diff.
 `mise run diff-bank` builds the catalogue on both sides of a branch and
 reports what moved. CI runs it on every pull request:
 
+**One class of change it cannot see.** It builds both sides with a single CLI —
+the one this tree pins — and for a package the CLI links, the bytes compiled are
+the CLI's. So a declaration that arrives by upgrading the CLI sits on both sides
+of the comparison and cancels out. On 2026-10-01 this reported *no policy
+changes* for a commit that took the catalogue from zero occurrences of the
+`escalation` tool set to three. A CLI bump in the same commit as a policy change
+hides the policy change, and reading the CLI's release notes is the only cover
+there is today.
+
 ```
 WIDENING — more callers, or less recorded (2)
   screening.v1.ScreenPartyResponse.requires_review

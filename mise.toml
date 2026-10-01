@@ -46,7 +46,7 @@ description = "Refresh every vendored platform proto from the pinned contract mo
 # destinations to decide between.
 run = """
 set -e
-VERSION=v0.7.0
+VERSION=v0.8.0
 go mod download github.com/garm-ai/contracts@$VERSION
 SRC="$(go env GOMODCACHE)/github.com/garm-ai/contracts@$VERSION/proto/garm"
 copy() {
@@ -114,7 +114,7 @@ description = "Install the tool generator at the pinned version"
 # agent services share one Go package and got five `DefaultInputCard`s.
 # v0.19.0 qualifies the Go identifier with the service name always, and
 # leaves the RPC and catalogue names alone.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.24.0"
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.25.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -146,7 +146,7 @@ description = "Install the garm CLI at the pinned version"
 # after the split: it reads the annotations it vendors and lints against out
 # of github.com/garm-ai/contracts, so the rules it applies are the ones the
 # pinned contract module actually declares — A9, A10 and C8 among them.
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.24.0"
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.25.0"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
@@ -238,6 +238,23 @@ depends = ["cli"]
 # blocking every one of them teaches people to route around the check; what it
 # must never be is INVISIBLE. In a bank this is where you would add the gate,
 # with an override a named human applies.
+#
+# AND THERE IS ONE CLASS OF CHANGE THIS REPORT CANNOT SEE, which matters most
+# precisely because of the sentence above. It builds the base ref's catalogue
+# and this one's with ONE CLI — the one `cli` just installed from THIS tree's
+# pin. For a package the CLI links, the bytes compiled are the CLI's, so a
+# declaration that arrives by UPGRADING THE CLI is present on both sides of the
+# comparison and cancels out.
+#
+# Met on 2026-10-01: contracts v0.8.0 put `create_task` in the `escalation` tool
+# set, this tree moved to it and to garm v0.25.0, and this task reported "no
+# policy changes" — while the catalogue went from zero occurrences of
+# `escalation` to three. The digests differed; the policy comparison did not.
+#
+# So a CLI bump in the same commit as a policy change hides the policy change.
+# Reviewing the CLI's own release notes is the only cover today. Closing it
+# means building each side with ITS OWN pinned CLI, which is a bigger change
+# than it sounds: the base ref's pin may not exist any more.
 run = """
 set -e
 BASE="${BASE:-main}"
