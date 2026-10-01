@@ -43,7 +43,7 @@ include:
   # which module it came from, and bank/third_party/proto is the other half of
   # it.
   - module: github.com/garm-ai/contracts
-    version: v0.6.0
+    version: v0.7.0
     packages: [garm.tasks.v1]
 
   # The web fetcher the research assistant calls. This module has no Go the
