@@ -46,7 +46,7 @@ description = "Refresh every vendored platform proto from the pinned contract mo
 # destinations to decide between.
 run = """
 set -e
-VERSION=v0.6.0-rc.1
+VERSION=v0.6.0
 go mod download github.com/garm-ai/contracts@$VERSION
 SRC="$(go env GOMODCACHE)/github.com/garm-ai/contracts@$VERSION/proto/garm"
 copy() {
@@ -114,7 +114,7 @@ description = "Install the tool generator at the pinned version"
 # agent services share one Go package and got five `DefaultInputCard`s.
 # v0.19.0 qualifies the Go identifier with the service name always, and
 # leaves the RPC and catalogue names alone.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.23.0-rc.1"
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.23.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -146,7 +146,7 @@ description = "Install the garm CLI at the pinned version"
 # after the split: it reads the annotations it vendors and lints against out
 # of github.com/garm-ai/contracts, so the rules it applies are the ones the
 # pinned contract module actually declares — A9, A10 and C8 among them.
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.23.0-rc.1"
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.23.0"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
