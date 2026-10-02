@@ -171,9 +171,17 @@ func buildSupportCatalogue(t *testing.T, garmBin string) string {
 			t.Fatalf("copying %s: %v %s", d, err, out)
 		}
 	}
+	// garm no longer takes a bare directory: a manifest with one `path:`
+	// entry over the copy above is the same single-input composition
+	// `--proto` used to be, just spelled as the manifest it always was.
+	manifestPath := filepath.Join(dir, "catalogue.yaml")
+	if err := os.WriteFile(manifestPath,
+		[]byte("schema: v1\nname: support\ninclude:\n  - path: proto\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out := filepath.Join(dir, "support.binpb")
 	cmd := exec.Command(garmBin, "catalogue", "build",
-		"--proto", filepath.Join(dir, "proto"), "-o", out)
+		"-f", manifestPath, "-o", out)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("building the catalogue: %v\n%s", err, b)
 	}

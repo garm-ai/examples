@@ -114,7 +114,11 @@ description = "Install the tool generator at the pinned version"
 # agent services share one Go package and got five `DefaultInputCard`s.
 # v0.19.0 qualifies the Go identifier with the service name always, and
 # leaves the RPC and catalogue names alone.
-run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.26.0"
+#
+# Raised to v0.29.0 to stay the same release as the CLI below, which was
+# raised to close the estate-wide pin spread this task found — see that
+# pin's own comment.
+run = "go install github.com/garm-ai/garm/cmd/protoc-gen-garm-go@v0.29.0"
 
 [tasks.gen]
 description = "Regenerate Go from the protos"
@@ -146,7 +150,13 @@ description = "Install the garm CLI at the pinned version"
 # after the split: it reads the annotations it vendors and lints against out
 # of github.com/garm-ai/contracts, so the rules it applies are the ones the
 # pinned contract module actually declares — A9, A10 and C8 among them.
-run = "go install github.com/garm-ai/garm/cmd/garm@v0.26.0"
+#
+# Raised to v0.29.0, the release that deletes --proto outright (this
+# repository's own catalogue.yaml has not passed it in a long time, so the
+# deletion changes nothing this tree does), and to close a pin spread across
+# the estate that was a real hazard: devkit and sts were still linting the
+# bank catalogue this task builds on a CLI predating lint rules A12-A15.
+run = "go install github.com/garm-ai/garm/cmd/garm@v0.29.0"
 
 [tasks.daemon]
 description = "Install garmd at the pinned version, for the mount check"
