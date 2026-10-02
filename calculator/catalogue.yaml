@@ -4,8 +4,8 @@
 # root, where the bank's is, precisely because it declares no modules and needs
 # no module graph to resolve them against.
 #
-# It replaces `--proto proto`, which is deprecated and had become the last
-# thing in this repository still building a catalogue from a bare directory.
+# It replaces `--proto proto`, which garm has since deleted (it was the last
+# thing in this repository still building a catalogue from a bare directory).
 schema: v1
 name: calculator
 source: garm-ai/examples/calculator

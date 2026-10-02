@@ -268,8 +268,7 @@ trap 'rm -rf "$WORK"' EXIT
 # A worktree is also what makes the base's own manifest usable: the module
 # versions an entry resolves to are that ref's go.mod's, which is the whole
 # point of the invariant and would be lost by building the base ref's protos
-# against this one's requirements. The --proto fallback is for a base ref older
-# than the manifest and is dead code the day main carries one.
+# against this one's requirements.
 git worktree add --detach --quiet "$WORK/base" "$BASE"
 if [ -f "$WORK/base/catalogue.yaml" ]; then
   # The base carries a manifest, so its catalogue MUST build. A failure here is
@@ -278,29 +277,23 @@ if [ -f "$WORK/base/catalogue.yaml" ]; then
   (cd "$WORK/base" && garm catalogue build -o "$WORK/base.binpb")
   git worktree remove --force "$WORK/base"
 else
-  # A base ref older than the manifest. Its catalogue is composed the old way,
-  # from one proto directory, and THAT TREE MAY NO LONGER BE LINTABLE: rules
-  # arrive over time and are applied to whatever they are pointed at. The bank
-  # before `garm.tasks.v1` was adopted declares a grant-mode approval with no
-  # task queue in its catalogue, which rule P1 now refuses — correctly, and
-  # about a tree nobody is proposing to ship.
+  # A base ref older than the manifest. This CLI has no way to build a
+  # catalogue from one proto directory any more — garm v0.29.0 deleted
+  # --proto, the flag that used to do it — so there is nothing left to
+  # attempt here.
   #
-  # So a failure on this path is NOT a statement about the branch, and must not
-  # read as one. Blocking here would block the very change that retires the
-  # path: the first branch to add catalogue.yaml can never have a green base.
-  if garm catalogue build --proto "$WORK/base/bank/proto" -o "$WORK/base.binpb" 2>"$WORK/base.err"; then
-    git worktree remove --force "$WORK/base"
-  else
-    git worktree remove --force "$WORK/base"
-    echo "NO POLICY DIFF: the base ref $BASE has no catalogue.yaml, and its proto"
-    echo "tree does not build under this CLI. The reason follows. This says nothing"
-    echo "about the branch under review — review the policy change by hand."
-    echo
-    sed 's/^/  | /' "$WORK/base.err"
-    echo
-    echo "This path retires itself once $BASE carries a manifest."
-    exit 0
-  fi
+  # This is NOT a statement about the branch under review, and must not read
+  # as one: blocking here would block the very change that retires this
+  # path — the first branch to add catalogue.yaml can never have a green
+  # base.
+  git worktree remove --force "$WORK/base"
+  echo "NO POLICY DIFF: the base ref $BASE has no catalogue.yaml, and this CLI"
+  echo "has no way to build a catalogue from a bare proto directory any more."
+  echo "This says nothing about the branch under review — review the policy"
+  echo "change by hand."
+  echo
+  echo "This path retires itself once $BASE carries a manifest."
+  exit 0
 fi
 
 garm catalogue build -o "$WORK/head.binpb"
@@ -310,31 +303,18 @@ garm catalogue diff "$WORK/base.binpb" "$WORK/head.binpb"
 [tasks.lint-bank]
 description = "Lint the bank tool declarations, over the whole composed catalogue"
 depends = ["cli"]
-# NOT `garm lint --proto proto` any more, and the reason is the migration this
-# repository has just done rather than a preference.
+# `garm lint` with no flags: it takes catalogue.yaml, the same manifest
+# `catalogue build` does, and checks the same whole-set rules — A3's agent
+# allowlist, A9's audience, P1's required platform package — against the
+# bank's three composed inputs (bank/proto, garm.tasks.v1 out of the contract
+# module, web.v1 out of github.com/garm-ai/tools/web). Linting bank/proto
+# alone would be WRONG rather than merely incomplete: the research assistant
+# names `web.v1.fetch_page`, which is not in that one directory, and A3 would
+# refuse an agent that is correct.
 #
-# `garm lint` at v0.20.0 takes ONE DIRECTORY. The bank's catalogue is composed
-# from three inputs — bank/proto, garm.tasks.v1 out of the contract module and
-# web.v1 out of github.com/garm-ai/tools/web — so there is no single directory
-# that contains it, and linting bank/proto alone does not merely see less: it is
-# WRONG. Rule A3 resolves an agent's allowlist against the catalogue the agent
-# is published in, the research assistant names `web.v1.fetch_page`, and a lint
-# of bank/proto refuses that agent because the tool it names is not in the
-# directory. Proved by running it.
-#
-# `garm catalogue build` lints the assembled set and refuses on any error
-# before it writes anything, so composing IS linting and this task is the lint
-# with the artifact thrown away. The one warning it reports is O1 on
-# web.v1.WebService, which is the adopted package's to fix and not this tree's.
-#
-# A manifest-aware `garm lint` is coming; when it lands this becomes
-# `garm lint` with no flags and the temporary file goes away.
-run = """
-set -e
-OUT=$(mktemp -d)
-trap 'rm -rf "$OUT"' EXIT
-garm catalogue build -o "$OUT/lint.binpb"
-"""
+# This used to build a throwaway catalogue instead, because `garm lint` did
+# not yet read a manifest. It does now, so there is no artifact to throw away.
+run = "garm lint"
 
 [tasks.catalogue-bank]
 description = "Build the bank catalogue"

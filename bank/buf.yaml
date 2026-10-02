@@ -8,9 +8,10 @@ modules:
   # proto/accounts/accounts/v1. A doubled directory for no gain.
   #
   # Nothing is actually lost. CODEOWNERS routes on paths, `buf breaking`
-  # reports per file, and a catalogue is sliced by directory
-  # (`--proto proto/accounts`) rather than by module. The domain boundary is
-  # the directory; buf does not need to agree for it to be real.
+  # reports per file, and a catalogue is sliced by directory (a
+  # catalogue.yaml `path:` entry naming proto/accounts) rather than by
+  # module. The domain boundary is the directory; buf does not need to agree
+  # for it to be real.
   - path: proto
   # The garm annotations, vendored. A module of its own so they import by their
   # real path without being generated — Go for them already exists in
